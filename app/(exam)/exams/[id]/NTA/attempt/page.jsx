@@ -1,0 +1,295 @@
+"use client";
+
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
+
+const MAX_TAB_VIOLATIONS = 3;
+const MAX_FULLSCREEN_EXIT = 2;
+
+export default function NtaExamPage() {
+  const { id } = useParams();
+  const router = useRouter();
+
+  /* =========================
+      STATE & REFS (KEEP LOGIC)
+  ========================== */
+  const [examName, setExamName] = useState("");
+  const [studentName, setStudentName] = useState("");
+  const [sections, setSections] = useState([]);
+  const [current, setCurrent] = useState({ s: 0, q: 0 });
+  const [answers, setAnswers] = useState({});
+  const [visited, setVisited] = useState({});
+  const [review, setReview] = useState({});
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [started, setStarted] = useState(false);
+
+  const [tabViolations, setTabViolations] = useState(0);
+  const [fsViolations, setFsViolations] = useState(0);
+  const [showSummary, setShowSummary] = useState(false);
+  const [showForceSubmit, setShowForceSubmit] = useState(false);
+
+  const submittedRef = useRef(false);
+  const submitReasonRef = useRef(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
+  /* =========================
+      SYSTEM LOAD (KEEP LOGIC)
+  ========================== */
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(`/api/exams/${id}/attempt`);
+        const d = await res.json();
+        setExamName(d.exam_name || "JEE-Main");
+        setStudentName(d.student_name || "Candidate");
+        setSections(d.sections || []);
+        setAnswers(d.answers || {});
+        setTimeLeft(d.timeLeft || 10800); 
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [id]);
+
+  /* =========================
+      FUNCTIONALITY (KEEP LOGIC)
+  ========================== */
+  const requestFullscreen = () => {
+    const el = document.documentElement;
+    if (el.requestFullscreen) el.requestFullscreen();
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  };
+
+  const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+
+  useEffect(() => {
+    if (!started) return;
+    const timer = setInterval(() => setTimeLeft(t => (t <= 0 ? 0 : t - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [started]);
+
+  async function finalSubmit() {
+    if (submittedRef.current) return;
+    submittedRef.current = true;
+    try { if (isFullscreen()) document.exitFullscreen(); } catch (e) {}
+    router.push("/dashboard");
+  }
+
+  const saveAnswer = async (optionId) => {
+    const s = sections[current.s];
+    const q = s.questions[current.q];
+    const key = `${s.id}-${q.id}`;
+    setAnswers(p => ({ ...p, [key]: optionId }));
+    await fetch(`/api/exams/${id}/attempt/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sectionId: s.id, questionId: q.id, answer: optionId, timeLeft }),
+    });
+  };
+
+  if (loading) return <div className="h-screen flex items-center justify-center">Loading NTA Interface...</div>;
+
+  if (!started) return (
+    <div className="min-h-screen bg-white flex items-center justify-center p-6">
+      <div className="text-center border p-10 shadow-lg max-w-md w-full">
+        <h1 className="text-xl font-bold mb-6 underline">EXAM SYSTEM READINESS</h1>
+        <button onClick={() => { requestFullscreen(); setStarted(true); }} className="bg-[#2c3e50] text-white px-10 py-3 font-bold">START EXAM</button>
+      </div>
+    </div>
+  );
+
+  const section = sections[current.s];
+  const question = section.questions[current.q];
+  const qKey = `${section.id}-${question.id}`;
+
+  return (
+    <div className="h-screen flex flex-col bg-white overflow-hidden font-sans select-none text-[#333]">
+      
+      {/* NTA HEADER PART 1 */}
+      <header className="bg-white px-6 py-2 flex justify-between items-center shrink-0 border-b">
+        <div className="flex items-center gap-6">
+          <div className="w-20 h-20 bg-gray-100 border p-1">
+             <div className="w-full h-full bg-gray-300 flex items-center justify-center text-white">
+                <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" /></svg>
+             </div>
+          </div>
+          <div className="text-[13px] leading-relaxed">
+            <p>Candidate Name : <span className="text-orange-600 font-bold uppercase">{studentName}</span></p>
+            <p>Exam Name : <span className="text-orange-600 font-bold uppercase">{examName}</span></p>
+            <p>Subject Name : <span className="text-orange-600 font-bold uppercase">{section.section_name}</span></p>
+            <p className="flex items-center gap-2 mt-1">
+              Remaining Time : 
+              <span className="bg-cyan-500 text-white px-3 py-0.5 rounded font-mono font-bold text-lg">
+                {Math.floor(timeLeft / 3600)}:{String(Math.floor((timeLeft % 3600) / 60)).padStart(2, '0')}:{String(timeLeft % 60).padStart(2, '0')}
+              </span>
+            </p>
+          </div>
+        </div>
+        <div className="border border-gray-300 p-2">
+          <select className="text-xs border p-1 outline-none"><option>English</option></select>
+        </div>
+      </header>
+
+      {/* SUB HEADER / SECTION BAR */}
+      <div className="bg-[#2c3e50] text-white flex items-center px-4 overflow-x-auto no-scrollbar shrink-0">
+        {sections.map((s, i) => (
+          <button
+            key={s.id}
+            onClick={() => setCurrent({ s: i, q: 0 })}
+            className={`px-6 py-2 text-[12px] font-bold uppercase transition-colors whitespace-nowrap border-r border-slate-600 ${i === current.s ? "bg-white text-black" : "hover:bg-slate-700"}`}
+          >
+            {s.section_name}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* LEFT PANEL */}
+        <div className="flex-1 flex flex-col bg-white border-r border-gray-300 relative">
+          <div className="bg-[#f0f0f0] px-4 py-1.5 border-b font-bold text-[14px] flex justify-between">
+            <span>Question No: {current.q + 1}</span>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-6 scroll-smooth">
+            <div className="max-w-4xl">
+              <div className="text-[16px] leading-relaxed mb-10 text-black border-b pb-4" dangerouslySetInnerHTML={{ __html: question.question_text }} />
+              <div className="space-y-4">
+                {question.options.map((opt, idx) => (
+                  <label key={opt.id} className="flex items-center gap-3 cursor-pointer group">
+                    <input 
+                      type="radio" 
+                      name="answer" 
+                      className="w-4 h-4 cursor-pointer" 
+                      onChange={() => saveAnswer(opt.id)} 
+                      checked={answers[qKey] === opt.id} 
+                    />
+                    <span className="text-[15px] group-hover:text-blue-700">
+                       {idx + 1}) <span dangerouslySetInnerHTML={{ __html: opt.option_text }} />
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* BOTTOM CONTROLS */}
+          <div className="shrink-0 border-t border-gray-300">
+            <div className="flex gap-2 p-3 bg-[#f8f9fa]">
+              <button className="bg-[#4caf50] text-white px-5 py-2 text-[12px] font-bold uppercase rounded border-b-2 border-green-800 shadow-sm">Save & Next</button>
+              <button onClick={() => setAnswers({...answers, [qKey]: null})} className="bg-white border text-gray-700 px-5 py-2 text-[12px] font-bold uppercase rounded shadow-sm">Clear</button>
+              <button className="bg-[#fb8c00] text-white px-5 py-2 text-[12px] font-bold uppercase rounded border-b-2 border-orange-800 shadow-sm">Save & Mark For Review</button>
+              <button onClick={() => setReview({...review, [qKey]: true})} className="bg-[#3f51b5] text-white px-5 py-2 text-[12px] font-bold uppercase rounded border-b-2 border-indigo-900 shadow-sm">Mark For Review & Next</button>
+            </div>
+            
+            <div className="p-3 flex justify-between items-center border-t bg-gray-100">
+               <div className="flex gap-2">
+                 <button onClick={() => setCurrent({...current, q: current.q > 0 ? current.q -1 : 0})} className="bg-white border px-4 py-1 text-xs font-bold shadow-sm">&lt;&lt; BACK</button>
+                 <button onClick={() => setCurrent({...current, q: current.q < section.questions.length -1 ? current.q + 1 : current.q})} className="bg-white border px-4 py-1 text-xs font-bold shadow-sm">NEXT &gt;&gt;</button>
+               </div>
+               <button onClick={() => setShowSummary(true)} className="bg-[#4caf50] text-white px-10 py-1.5 text-xs font-bold uppercase shadow-md border-b-2 border-green-800">Submit</button>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT PANEL */}
+        <aside className="w-[300px] flex flex-col bg-white shrink-0 border-l border-gray-300 overflow-y-auto">
+          {/* LEGEND BLOCK */}
+          <div className="p-4 border-b">
+            <div className="grid grid-cols-2 gap-x-2 gap-y-3 text-[11px] font-semibold">
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 bg-gray-100 border border-gray-300 flex items-center justify-center">0</span> 
+                Not Visited
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 bg-[#f44336] text-white flex items-center justify-center rounded-t-xl">0</span> 
+                Not Answered
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 bg-[#4caf50] text-white flex items-center justify-center rounded-b-xl">0</span> 
+                Answered
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 bg-[#673ab7] text-white flex items-center justify-center rounded-full">0</span> 
+                Marked for Review
+              </div>
+              <div className="col-span-2 flex items-center gap-2">
+                <span className="w-8 h-8 bg-[#673ab7] text-white flex items-center justify-center rounded-full relative">0<div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div></span>
+                <span className="leading-tight text-[10px]">Answered & Marked for Review (will be considered for evaluation)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* PALETTE GRID */}
+          <div className="flex-1 p-3">
+             <div className="bg-[#2c3e50] text-white px-3 py-1 text-[12px] font-bold uppercase mb-4">Subject : {section.section_name}</div>
+             <div className="grid grid-cols-4 gap-2">
+                {section.questions.map((q, i) => {
+                  const k = `${section.id}-${q.id}`;
+                  let statusStyle = "bg-white border border-gray-300 text-gray-500"; // Not Visited
+                  if (answers[k]) statusStyle = "bg-[#4caf50] text-white rounded-b-xl border-green-700"; // Answered
+                  else if (review[k]) statusStyle = "bg-[#673ab7] text-white rounded-full border-indigo-900"; // Review
+                  else if (visited[k]) statusStyle = "bg-[#f44336] text-white rounded-t-xl border-red-700"; // Not Answered
+
+                  return (
+                    <button 
+                      key={k} 
+                      onClick={() => {
+                        setCurrent({...current, q: i});
+                        setVisited({...visited, [k]: true});
+                      }}
+                      className={`h-9 w-10 text-[12px] font-bold flex items-center justify-center shadow-sm ${statusStyle} ${current.q === i ? "ring-2 ring-black ring-offset-1" : ""}`}
+                    >
+                      {i + 1}
+                    </button>
+                  );
+                })}
+             </div>
+          </div>
+
+          {/* FOOTER */}
+          <div className="bg-gray-100 p-2 text-center text-[10px] border-t font-bold uppercase">
+             © National Testing Agency
+          </div>
+        </aside>
+      </div>
+
+      {/* SUMMARY MODAL */}
+      {showSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded shadow-2xl w-full max-w-xl overflow-hidden border-t-8 border-[#2c3e50]">
+            <div className="p-6">
+              <h2 className="text-xl font-black mb-6 uppercase underline">Exam Summary</h2>
+              <table className="w-full text-sm border-collapse border">
+                 <thead className="bg-gray-200">
+                    <tr>
+                      <th className="border p-2">Section</th>
+                      <th className="border p-2">Attempted</th>
+                      <th className="border p-2">Review</th>
+                    </tr>
+                 </thead>
+                 <tbody>
+                    {sections.map(s => (
+                      <tr key={s.id} className="text-center font-bold">
+                        <td className="border p-2">{s.section_name}</td>
+                        <td className="border p-2">{s.questions.filter(q => answers[`${s.id}-${q.id}`]).length}</td>
+                        <td className="border p-2">{s.questions.filter(q => review[`${s.id}-${q.id}`]).length}</td>
+                      </tr>
+                    ))}
+                 </tbody>
+              </table>
+            </div>
+            <div className="p-6 bg-gray-50 flex gap-4">
+               <button onClick={() => setShowSummary(false)} className="flex-1 py-3 border-2 font-black uppercase text-sm hover:bg-gray-100">Cancel</button>
+               <button onClick={finalSubmit} className="flex-1 py-3 bg-[#4caf50] text-white font-black uppercase text-sm hover:bg-green-700 shadow-lg">Final Submit</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
