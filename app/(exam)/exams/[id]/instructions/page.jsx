@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
   CheckCircle2,
   Clock3,
@@ -13,7 +13,6 @@ import { getStudentAttemptPath, getThemePresentation } from "@/lib/exam-theme";
 
 export default function ExamInstructions() {
   const { id } = useParams();
-  const router = useRouter();
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [exam, setExam] = useState(null);
@@ -51,8 +50,54 @@ export default function ExamInstructions() {
     };
   }, [id]);
 
+  const instructionHtml = useMemo(() => {
+    const raw = exam?.instructions;
+    if (!raw || typeof raw !== "string") {
+      return "";
+    }
+
+    if (typeof window === "undefined") {
+      return raw;
+    }
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(raw, "text/html");
+
+    doc.querySelectorAll("script, style, iframe, object, embed, link, meta").forEach((node) => {
+      node.remove();
+    });
+
+    doc.querySelectorAll("*").forEach((node) => {
+      [...node.attributes].forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        const value = String(attr.value || "").trim();
+
+        if (name.startsWith("on")) {
+          node.removeAttribute(attr.name);
+          return;
+        }
+
+        if ((name === "href" || name === "src") && value.toLowerCase().startsWith("javascript:")) {
+          node.removeAttribute(attr.name);
+          return;
+        }
+
+        if (name === "style") {
+          node.removeAttribute(attr.name);
+        }
+      });
+    });
+
+    return doc.body.innerHTML;
+  }, [exam?.instructions]);
+
+  const hasRichInstructions = useMemo(
+    () => /<\/?[a-z][\s\S]*>/i.test(exam?.instructions || ""),
+    [exam?.instructions]
+  );
+
   const instructionItems = useMemo(() => {
-    if (!exam?.instructions) {
+    if (!exam?.instructions || hasRichInstructions) {
       return [];
     }
 
@@ -60,9 +105,10 @@ export default function ExamInstructions() {
       .split(/\r?\n/)
       .map((item) => item.trim())
       .filter(Boolean);
-  }, [exam?.instructions]);
+  }, [exam?.instructions, hasRichInstructions]);
 
   const themeMeta = getThemePresentation(exam?.exam_theme);
+  const hasBackendInstructions = Boolean((exam?.instructions || "").trim());
 
   async function startExam() {
     if (!agreed) return;
@@ -112,23 +158,32 @@ export default function ExamInstructions() {
 
         <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="space-y-6">
-            <div className="glass-panel p-6">
-              <p className="eyebrow">Overview</p>
-              <h2 className="mt-4 section-title text-[2rem]">Exam snapshot</h2>
-              <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                <InfoCard label="Theme" value={themeMeta.label} />
-                <InfoCard label="Duration" value={`${exam.duration_minutes} minutes`} />
-                <InfoCard label="Questions" value={`${exam.total_questions || 0}`} />
-                <InfoCard label="Total marks" value={`${exam.total_marks || 0}`} />
-                <InfoCard label="Section switching" value={exam.allow_section_switch ? "Allowed" : "Locked by test settings"} />
+            {!hasBackendInstructions ? (
+              <div className="glass-panel p-6">
+                <p className="eyebrow">Overview</p>
+                <h2 className="mt-4 section-title text-[2rem]">Exam snapshot</h2>
+                <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                  <InfoCard label="Theme" value={themeMeta.label} />
+                  <InfoCard label="Duration" value={`${exam.duration_minutes} minutes`} />
+                  <InfoCard label="Questions" value={`${exam.total_questions || 0}`} />
+                  <InfoCard label="Total marks" value={`${exam.total_marks || 0}`} />
+                  <InfoCard label="Section switching" value={exam.allow_section_switch ? "Allowed" : "Locked by test settings"} />
+                </div>
               </div>
-            </div>
+            ) : null}
 
             <div className="glass-panel p-6">
               <p className="eyebrow">Instructions</p>
               <h2 className="mt-4 section-title text-[2rem]">Candidate guidelines</h2>
 
-              {instructionItems.length ? (
+              {hasRichInstructions && instructionHtml ? (
+                <div className="mt-6 rounded-[24px] border border-slate-200 bg-white/90 p-5">
+                  <div
+                    className="prose max-w-none prose-slate prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-img:my-2 prose-img:max-h-12 prose-img:w-auto"
+                    dangerouslySetInnerHTML={{ __html: instructionHtml }}
+                  />
+                </div>
+              ) : instructionItems.length ? (
                 <div className="mt-6 space-y-4">
                   {instructionItems.map((item, index) => (
                     <div key={`${index}-${item}`} className="rounded-[24px] border border-slate-200 bg-white/80 px-5 py-4 text-sm leading-7 text-slate-700">
