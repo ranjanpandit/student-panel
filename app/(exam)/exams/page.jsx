@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowRight, CalendarRange, Clock3, FileCheck2, Layers3 } from "lucide-react";
+import { getThemePresentation } from "@/lib/exam-theme";
 
 export default function StudentExams() {
   const [exams, setExams] = useState([]);
@@ -11,133 +14,165 @@ export default function StudentExams() {
       .then((res) => {
         if (res.status === 401) {
           window.location.href = "/login";
-          return;
+          return null;
         }
         return res.json();
       })
       .then((data) => {
         setExams(Array.isArray(data) ? data : []);
         setLoading(false);
-      });
+      })
+      .catch(() => setLoading(false));
   }, []);
 
-  function renderAction(exam) {
-    const now = new Date();
-    const start = new Date(exam.start_time);
-    const end = new Date(exam.end_time);
-
-    if (exam.attempt_status === "submitted") {
-      return (
-        <span className="inline-flex items-center px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
-          Submitted
-        </span>
-      );
-    }
-
-    if (now < start || now > end) {
-      return (
-        <span className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold">
-          Not Active
-        </span>
-      );
-    }
-
-    if (exam.attempt_status === "in_progress") {
-      return (
-        <a
-          href={`/exams/${exam.id}/instructions`}
-          className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-orange-600 text-white text-sm font-medium hover:opacity-90"
-        >
-          Resume Exam
-        </a>
-      );
-    }
-
-    return (
-      <a
-        href={`/exams/${exam.id}/instructions`}
-        className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-black text-white text-sm font-medium hover:opacity-90"
-      >
-        Start Exam
-      </a>
-    );
-  }
+  const summary = useMemo(
+    () => ({
+      total: exams.length,
+      inProgress: exams.filter((exam) => exam.attempt_status === "in_progress").length,
+      submitted: exams.filter((exam) => exam.attempt_status === "submitted").length,
+    }),
+    [exams]
+  );
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {/* HEADER */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">My Exams</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          View and attempt your assigned examinations
-        </p>
+    <div className="min-h-screen px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-8">
+        <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="glass-panel p-6 sm:p-8">
+            <p className="eyebrow">Exams</p>
+            <h1 className="page-title mt-4">My examination desk</h1>
+            <p className="page-copy mt-4 max-w-2xl">Browse active tests, resume secure attempts, and review timings in a cleaner, easier-to-scan layout.</p>
+          </div>
+
+          <div className="glass-panel grid gap-4 p-6 sm:grid-cols-3 xl:grid-cols-1">
+            <SummaryBox label="Total exams" value={loading ? "--" : summary.total} icon={<Layers3 size={18} />} />
+            <SummaryBox label="In progress" value={loading ? "--" : summary.inProgress} icon={<Clock3 size={18} />} tone="amber" />
+            <SummaryBox label="Submitted" value={loading ? "--" : summary.submitted} icon={<FileCheck2 size={18} />} tone="emerald" />
+          </div>
+        </section>
+
+        {loading ? (
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={index} className="glass-panel h-72 animate-pulse bg-white/60" />
+            ))}
+          </div>
+        ) : exams.length === 0 ? (
+          <div className="glass-panel px-6 py-16 text-center">
+            <p className="font-display text-3xl tracking-[-0.04em] text-slate-950">No exams available right now</p>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-600">New assessments will appear here as soon as they are assigned to your account.</p>
+          </div>
+        ) : (
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {exams.map((exam) => (
+              <ExamCard key={exam.id} exam={exam} />
+            ))}
+          </div>
+        )}
       </div>
-
-      {/* CONTENT */}
-      {loading ? (
-        <div className="text-gray-500">Loading exams…</div>
-      ) : exams.length === 0 ? (
-        <div className="bg-white border rounded-xl p-6 text-center text-gray-500">
-          No exams available right now
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {exams.map((e) => (
-            <div
-              key={e.id}
-              className="border rounded-2xl p-5 bg-white shadow-sm hover:shadow-md transition flex flex-col justify-between"
-            >
-              {/* TOP */}
-              <div>
-                <p className="font-semibold text-base line-clamp-2">
-                  {e.title}
-                </p>
-
-                <div className="mt-2 text-sm text-gray-600 space-y-1">
-                  <p>⏱ Duration: {e.duration_minutes} minutes</p>
-                  <p>
-                    🗓 {new Date(e.start_time).toLocaleString()} –{" "}
-                    {new Date(e.end_time).toLocaleString()}
-                  </p>
-                </div>
-              </div>
-
-              {/* FOOTER */}
-              <div className="mt-5 flex items-center justify-between">
-                <StatusBadge exam={e} />
-                {renderAction(e)}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
 
-/* =========================
-   STATUS BADGE
-========================= */
-function StatusBadge({ exam }) {
+function ExamCard({ exam }) {
+  const now = new Date();
+  const start = new Date(exam.start_time);
+  const end = new Date(exam.end_time);
+  const isActive = now >= start && now <= end;
+  const statusLabel =
+    exam.attempt_status === "submitted"
+      ? "Submitted"
+      : exam.attempt_status === "in_progress"
+        ? "In progress"
+        : "Not started";
+  const themeMeta = getThemePresentation(exam.exam_theme);
+
+  return (
+    <div className="glass-panel flex h-full flex-col p-6">
+      <div className="flex items-start justify-between gap-4">
+        <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] ${
+          exam.attempt_status === "submitted"
+            ? "bg-emerald-100 text-emerald-700"
+            : exam.attempt_status === "in_progress"
+              ? "bg-amber-100 text-amber-700"
+              : "bg-sky-100 text-sky-700"
+        }`}>
+          {statusLabel}
+        </span>
+        <div className="flex items-center gap-2">
+          <div className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-600">{themeMeta.label}</div>
+          <div className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] ${
+            isActive ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600"
+          }`}>
+            {isActive ? "Live" : "Scheduled"}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 flex-1">
+        <h2 className="font-display text-3xl leading-tight tracking-[-0.04em] text-slate-950">{exam.title}</h2>
+
+        <div className="mt-6 space-y-3 text-sm text-slate-600">
+          <InfoRow icon={<Clock3 size={16} />} label={`${exam.duration_minutes} minutes`} />
+          <InfoRow icon={<CalendarRange size={16} />} label={`${start.toLocaleString()} to ${end.toLocaleString()}`} />
+        </div>
+      </div>
+
+      <div className="mt-8 flex items-center justify-between gap-4">
+        <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Secure attempt</div>
+        <ExamAction exam={exam} active={isActive} />
+      </div>
+    </div>
+  );
+}
+
+function ExamAction({ exam, active }) {
   if (exam.attempt_status === "submitted") {
-    return (
-      <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded-full">
-        Submitted
-      </span>
-    );
+    return <span className="rounded-2xl bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-700">Completed</span>;
   }
 
-  if (exam.attempt_status === "in_progress") {
-    return (
-      <span className="text-xs font-semibold text-orange-700 bg-orange-100 px-2 py-1 rounded-full">
-        In Progress
-      </span>
-    );
+  if (!active) {
+    return <span className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-500">Not active</span>;
   }
 
   return (
-    <span className="text-xs font-semibold text-blue-700 bg-blue-100 px-2 py-1 rounded-full">
-      Not Started
-    </span>
+    <Link
+      href={`/exams/${exam.id}/instructions`}
+      className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-white transition ${
+        exam.attempt_status === "in_progress" ? "bg-amber-500 hover:bg-amber-600" : "bg-slate-950 hover:bg-slate-800"
+      }`}
+    >
+      {exam.attempt_status === "in_progress" ? "Resume exam" : "Start exam"}
+      <ArrowRight size={16} />
+    </Link>
+  );
+}
+
+function SummaryBox({ label, value, icon, tone = "sky" }) {
+  const tones = {
+    sky: "bg-sky-50 text-sky-700",
+    amber: "bg-amber-50 text-amber-700",
+    emerald: "bg-emerald-50 text-emerald-700",
+  };
+
+  return (
+    <div className="soft-panel px-5 py-5">
+      <div className="flex items-center justify-between gap-4">
+        <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${tones[tone]}`}>{icon}</div>
+        <div className="text-right">
+          <p className="text-xs uppercase tracking-[0.22em] text-slate-400">{label}</p>
+          <p className="mt-2 font-display text-4xl tracking-[-0.04em] text-slate-950">{value}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoRow({ icon, label }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="mt-0.5 text-sky-700">{icon}</div>
+      <p className="leading-6">{label}</p>
+    </div>
   );
 }

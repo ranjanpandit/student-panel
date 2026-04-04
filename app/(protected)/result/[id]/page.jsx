@@ -43,7 +43,7 @@ export default function ResultDetailsPage() {
   if (!result) {
     return (
       <div className="glass-panel px-6 py-16 text-center">
-        <p className="font-display text-3xl tracking-[-0.04em] text-slate-900">
+        <p className="font-display text-3xl tracking-[-0.04em] text-slate-950">
           Result not found
         </p>
       </div>
@@ -54,13 +54,13 @@ export default function ResultDetailsPage() {
     <div className="space-y-8">
       <button
         onClick={() => router.back()}
-        className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+        className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
       >
         <ArrowLeft size={16} />
         Back to results
       </button>
 
-      <section className="overflow-hidden rounded-[32px] bg-slate-950 text-white shadow-[0_30px_90px_rgba(15,23,42,0.18)]">
+      <section className="overflow-hidden rounded-[34px] bg-slate-950 text-white shadow-[0_32px_90px_rgba(15,23,42,0.18)]">
         <div className="grid gap-6 px-6 py-8 sm:px-8 lg:grid-cols-[1.15fr_0.85fr]">
           <div>
             <p className="eyebrow border-white/15 bg-white/10 text-cyan-100">
@@ -74,7 +74,7 @@ export default function ResultDetailsPage() {
             </p>
           </div>
 
-          <div className="rounded-[28px] border border-white/10 bg-white/8 p-5">
+          <div className="rounded-[30px] border border-white/10 bg-white/8 p-5 backdrop-blur">
             <p className="text-xs uppercase tracking-[0.22em] text-slate-300">
               Final status
             </p>
@@ -98,11 +98,11 @@ export default function ResultDetailsPage() {
 
       <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
         {stats.map((item) => (
-          <div key={item.label} className="glass-panel p-5">
+          <div key={item.label} className="metric-card">
             <p className="text-xs uppercase tracking-[0.22em] text-slate-500">
               {item.label}
             </p>
-            <p className="mt-3 font-display text-4xl tracking-[-0.04em] text-slate-900">
+            <p className="mt-3 font-display text-4xl tracking-[-0.04em] text-slate-950">
               {item.value}
             </p>
           </div>

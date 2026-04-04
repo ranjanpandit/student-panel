@@ -16,6 +16,10 @@ export default function MedicalExamPage() {
   const [examName, setExamName] = useState("");
   const [studentName, setStudentName] = useState("");
   const [sections, setSections] = useState([]);
+  const [pattern, setPattern] = useState({
+    allow_section_switch: 1,
+    allow_review: 1,
+  });
   const [current, setCurrent] = useState({ s: 0, q: 0 });
   const [answers, setAnswers] = useState({});
   const [visited, setVisited] = useState({});
@@ -37,6 +41,8 @@ export default function MedicalExamPage() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const snapshotTakenRef = useRef(false);
+  const questionTimesRef = useRef({});
+  const activeQuestionRef = useRef({ key: null, startedAt: null });
 
   /* =========================
       FULLSCREEN HELPERS
@@ -57,11 +63,27 @@ export default function MedicalExamPage() {
       try {
         const res = await fetch(`/api/exams/${id}/attempt`);
         const d = await res.json();
+        if (!res.ok) {
+          throw new Error(d.message || "Unable to load exam");
+        }
         setExamName(d.exam_name || "Medical Board Examination");
         setStudentName(d.student_name || "Doctor Candidate");
         setSections(d.sections || []);
+        setPattern(d.pattern || { allow_section_switch: 1, allow_review: 1 });
         setAnswers(d.answers || {});
+        questionTimesRef.current =
+          d.question_times && typeof d.question_times === "object"
+            ? d.question_times
+            : {};
         setTimeLeft(d.timeLeft || 0);
+        if (d.current_section_id) {
+          const sectionIndex = (d.sections || []).findIndex(
+            (section) => section.id === d.current_section_id
+          );
+          if (sectionIndex >= 0) {
+            setCurrent({ s: sectionIndex, q: 0 });
+          }
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -70,6 +92,49 @@ export default function MedicalExamPage() {
     }
     load();
   }, [id]);
+
+  const touchQuestionTimer = useCallback((force = false) => {
+    if (!started || !sections.length) return;
+    const section = sections[current.s];
+    const question = section?.questions?.[current.q];
+    if (!section || !question) return;
+
+    const key = `${section.id}-${question.id}`;
+    const now = Date.now();
+    const prev = activeQuestionRef.current;
+
+    if (prev.key === key && !force) return;
+
+    if (prev.key && prev.startedAt) {
+      const delta = Math.max(0, Math.floor((now - prev.startedAt) / 1000));
+      if (delta > 0) {
+        questionTimesRef.current[prev.key] =
+          Number(questionTimesRef.current[prev.key] || 0) + delta;
+      }
+    }
+
+    activeQuestionRef.current = { key, startedAt: now };
+  }, [current.q, current.s, sections, started]);
+
+  const getQuestionTimesSnapshot = useCallback(() => {
+    touchQuestionTimer(true);
+    return { ...questionTimesRef.current };
+  }, [touchQuestionTimer]);
+
+  useEffect(() => {
+    const returnFocusToOpener = () => {
+      if (window.opener && !window.opener.closed) {
+        try {
+          window.opener.focus();
+        } catch {}
+      }
+    };
+
+    window.addEventListener("beforeunload", returnFocusToOpener);
+    return () => {
+      window.removeEventListener("beforeunload", returnFocusToOpener);
+    };
+  }, []);
 
   /* =========================
       WEBCAM & PROCTORING
@@ -157,6 +222,10 @@ export default function MedicalExamPage() {
   }, [started]);
 
   useEffect(() => {
+    touchQuestionTimer();
+  }, [touchQuestionTimer]);
+
+  useEffect(() => {
     if (timeLeft === 0 && started && !submittedRef.current) triggerSubmit("TIME_UP");
   }, [timeLeft, started]);
 
@@ -180,16 +249,49 @@ export default function MedicalExamPage() {
     setShowForceSubmit(true);
   }
 
-  async function saveAnswer(optionId) {
+  async function persistAnswer(answerValue) {
     const s = sections[current.s];
     const q = s.questions[current.q];
     const key = `${s.id}-${q.id}`;
-    setAnswers((p) => ({ ...p, [key]: optionId }));
-    await fetch(`/api/exams/${id}/attempt/save`, {
+    const previousAnswer = answers[key];
+    setAnswers((p) => ({ ...p, [key]: answerValue }));
+    const response = await fetch(`/api/exams/${id}/attempt/save`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sectionId: s.id, questionId: q.id, answer: optionId, timeLeft }),
+      body: JSON.stringify({
+        sectionId: s.id,
+        questionId: q.id,
+        answer: answerValue,
+        timeLeft,
+        questionTimes: getQuestionTimesSnapshot(),
+      }),
     });
+
+    if (!response.ok) {
+      setAnswers((p) => {
+        const next = { ...p };
+        if (previousAnswer == null) {
+          delete next[key];
+        } else {
+          next[key] = previousAnswer;
+        }
+        return next;
+      });
+      throw new Error("Unable to save response");
+    }
+  }
+
+  async function saveAnswer(optionId) {
+    try {
+      await persistAnswer(optionId);
+    } catch (error) {
+      console.error(error);
+      alert("We could not save this response. Please try again.");
+    }
+  }
+
+  function hasAnswer(value) {
+    return value != null && value !== "";
   }
 
   async function finalSubmit() {
@@ -203,12 +305,30 @@ export default function MedicalExamPage() {
       }
     } catch (err) { console.warn(err); }
 
-    await fetch(`/api/exams/${id}/attempt/submit`, {
+    const response = await fetch(`/api/exams/${id}/attempt/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: submitReasonRef.current || "MANUAL", tabViolations, fsViolations }),
+      body: JSON.stringify({
+        reason: submitReasonRef.current || "MANUAL",
+        tabViolations,
+        fsViolations,
+        questionTimes: getQuestionTimesSnapshot(),
+      }),
     });
-    router.push("/dashboard");
+    const result = await response.json().catch(() => ({}));
+    if (result?.revealResult && result?.result?.resultId) {
+      router.push(`/result/${result.result.resultId}`);
+      return;
+    }
+
+    router.push("/exams");
+  }
+
+  function moveToSection(sectionIndex) {
+    if (!pattern.allow_section_switch && sectionIndex !== current.s) {
+      return;
+    }
+    setCurrent({ s: sectionIndex, q: 0 });
   }
 
   function formatTime(sec) {
@@ -218,7 +338,7 @@ export default function MedicalExamPage() {
   }
 
   if (loading) return (
-    <div className="h-screen flex items-center justify-center bg-slate-50">
+    <div className="min-h-[100dvh] flex items-center justify-center bg-slate-50">
        <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600 mb-4 mx-auto"></div>
           <p className="font-bold text-slate-500 uppercase tracking-widest text-xs">Medical System Initializing...</p>
@@ -246,9 +366,9 @@ export default function MedicalExamPage() {
   const qKey = `${section.id}-${question.id}`;
 
   return (
-    <div className="h-screen flex flex-col bg-white overflow-hidden select-none">
+    <div className="min-h-[100dvh] md:h-[100dvh] flex flex-col bg-white overflow-hidden select-none">
       {/* MEDICAL GRADE HEADER */}
-      <header className="h-16 bg-slate-50 border-b border-slate-200 flex items-center justify-between px-8 shrink-0 z-40 shadow-sm">
+      <header className="h-auto min-h-16 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-8 shrink-0 z-40 shadow-sm">
         <div className="flex items-center gap-4">
            <div className="h-10 w-10 bg-teal-600 text-white rounded-lg flex items-center justify-center shadow-md shadow-teal-100 font-black text-xl">+</div>
            <div>
@@ -266,17 +386,22 @@ export default function MedicalExamPage() {
       </header>
 
       {/* TABS - STICKY CLINICAL SUB-NAV */}
-      <nav className="h-12 bg-white border-b border-slate-100 flex items-center px-8 gap-1 shrink-0 overflow-x-auto no-scrollbar">
+      <nav className="h-12 bg-white border-b border-slate-100 flex items-center px-4 sm:px-8 gap-1 shrink-0 overflow-x-auto no-scrollbar">
         {sections.map((s, i) => (
-          <button key={s.id} onClick={() => setCurrent({ s: i, q: 0 })} className={`px-6 py-1.5 text-[9px] font-black rounded uppercase transition-all whitespace-nowrap tracking-widest ${i === current.s ? "bg-teal-50 text-teal-600 border border-teal-200" : "text-slate-400 hover:text-slate-600"}`}>
+          <button
+            key={s.id}
+            onClick={() => moveToSection(i)}
+            disabled={!pattern.allow_section_switch && i !== current.s}
+            className={`px-6 py-1.5 text-[9px] font-black rounded uppercase transition-all whitespace-nowrap tracking-widest ${i === current.s ? "bg-teal-50 text-teal-600 border border-teal-200" : "text-slate-400 hover:text-slate-600"} ${!pattern.allow_section_switch && i !== current.s ? "cursor-not-allowed opacity-50" : ""}`}
+          >
             {s.section_name}
           </button>
         ))}
       </nav>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 flex-col lg:flex-row overflow-hidden">
         <div className="flex-1 flex flex-col relative bg-white">
-          <div className="flex-1 overflow-y-auto p-12 lg:px-24 lg:py-16 pb-32 no-scrollbar">
+          <div className="flex-1 overflow-y-auto p-5 sm:p-8 lg:px-24 lg:py-16 pb-32 no-scrollbar">
             <div className="max-w-4xl">
               <div className="mb-10 flex items-center gap-6">
                 <div className="bg-slate-800 text-white text-[10px] font-black px-4 py-1 rounded uppercase">Item {current.q + 1}</div>
@@ -288,9 +413,9 @@ export default function MedicalExamPage() {
               
               <div className="space-y-3">
                 {question.options.map((opt, idx) => (
-                  <label key={opt.id} className={`flex items-center gap-6 p-6 border rounded-xl cursor-pointer transition-all ${answers[qKey] === opt.id ? "border-teal-500 bg-teal-50/30 shadow-md shadow-teal-50" : "border-slate-100 hover:border-slate-300"}`}>
-                    <input type="radio" className="hidden" onChange={() => saveAnswer(opt.id)} checked={answers[qKey] === opt.id} />
-                    <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center font-bold text-sm ${answers[qKey] === opt.id ? "bg-teal-600 border-teal-600 text-white" : "border-slate-200 text-slate-300"}`}>
+                  <label key={opt.id} className={`flex items-center gap-6 p-6 border rounded-xl cursor-pointer transition-all ${Number(answers[qKey]) === Number(opt.id) ? "border-teal-500 bg-teal-50/30 shadow-md shadow-teal-50" : "border-slate-100 hover:border-slate-300"}`}>
+                    <input type="radio" className="hidden" onChange={() => saveAnswer(opt.id)} checked={Number(answers[qKey]) === Number(opt.id)} />
+                    <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center font-bold text-sm ${Number(answers[qKey]) === Number(opt.id) ? "bg-teal-600 border-teal-600 text-white" : "border-slate-200 text-slate-300"}`}>
                       {String.fromCharCode(65 + idx)}
                     </div>
                     <div className="text-slate-700 font-semibold" dangerouslySetInnerHTML={{ __html: opt.option_text }} />
@@ -301,17 +426,25 @@ export default function MedicalExamPage() {
           </div>
 
           {/* FIXED CLINICAL CONTROLS */}
-          <footer className="absolute bottom-0 left-0 right-0 h-20 bg-slate-50 border-t border-slate-200 px-12 flex items-center justify-between z-30 shadow-inner">
-            <button disabled={current.q === 0} onClick={() => setCurrent(p => ({ ...p, q: p.q - 1 }))} className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 disabled:opacity-0 transition">← Previous Question</button>
+          <footer className="absolute bottom-0 left-0 right-0 h-20 bg-slate-50 border-t border-slate-200 px-4 sm:px-12 flex items-center justify-between z-30 shadow-inner">
+            <button
+              disabled={current.q === 0}
+              onClick={() => setCurrent((p) => ({ ...p, q: p.q - 1 }))}
+              className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 disabled:opacity-0 transition"
+            >
+              &lt; Previous Question
+            </button>
             <div className="flex gap-4">
-              <button onClick={() => setReview(r => ({ ...r, [qKey]: !r[qKey] }))} className={`px-10 py-3 rounded-lg font-black text-[10px] uppercase tracking-[0.2em] transition-all ${review[qKey] ? "bg-amber-500 text-white shadow-lg" : "bg-white border border-slate-200 text-slate-500 shadow-sm"}`}>Mark for Review</button>
-              <button onClick={() => current.q < section.questions.length - 1 && setCurrent(p => ({ ...p, q: p.q + 1 }))} className="px-12 py-3 bg-teal-600 text-white rounded-lg font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-teal-100 hover:bg-teal-700 transition-all active:scale-95">Save & Next Question →</button>
+              {pattern.allow_review ? (
+                <button onClick={() => setReview(r => ({ ...r, [qKey]: !r[qKey] }))} className={`px-10 py-3 rounded-lg font-black text-[10px] uppercase tracking-[0.2em] transition-all ${review[qKey] ? "bg-amber-500 text-white shadow-lg" : "bg-white border border-slate-200 text-slate-500 shadow-sm"}`}>Mark for Review</button>
+              ) : null}
+              <button onClick={() => current.q < section.questions.length - 1 && setCurrent(p => ({ ...p, q: p.q + 1 }))} className="px-6 sm:px-12 py-3 bg-teal-600 text-white rounded-lg font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-teal-100 hover:bg-teal-700 transition-all active:scale-95">Save & Next Question &gt;</button>
             </div>
           </footer>
         </div>
 
         {/* MEDICAL SIDEBAR - CASE VITAL SIGNS */}
-        <aside className="w-80 border-l border-slate-200 bg-slate-50 flex flex-col shrink-0">
+        <aside className="w-full lg:w-80 max-h-[42vh] lg:max-h-none border-t lg:border-t-0 lg:border-l border-slate-200 bg-slate-50 flex flex-col shrink-0">
           <div className="p-6 border-b border-slate-200">
             <div className="aspect-video bg-black rounded-xl overflow-hidden relative shadow-lg ring-4 ring-white">
               <video ref={videoRef} autoPlay muted className="w-full h-full object-cover grayscale opacity-80" />
@@ -322,7 +455,7 @@ export default function MedicalExamPage() {
             <div className="mt-6 grid grid-cols-2 gap-2 text-center">
                <div className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
                   <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Items Saved</p>
-                  <p className="text-xl font-black text-slate-800">{Object.keys(answers).length}</p>
+                  <p className="text-xl font-black text-slate-800">{Object.values(answers).filter(hasAnswer).length}</p>
                </div>
                <div className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
                   <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Violations</p>
@@ -338,7 +471,7 @@ export default function MedicalExamPage() {
                 const k = `${section.id}-${q.id}`;
                 let style = "bg-white text-slate-300 border-slate-100";
                 if (current.q === i) style = "bg-slate-800 border-slate-800 text-white scale-110 shadow-xl";
-                else if (answers[k]) style = "bg-teal-500 border-teal-500 text-white shadow-md shadow-teal-50";
+                else if (hasAnswer(answers[k])) style = "bg-teal-500 border-teal-500 text-white shadow-md shadow-teal-50";
                 else if (review[k]) style = "bg-amber-500 border-amber-500 text-white";
                 else if (visited[k]) style = "bg-slate-200 border-slate-200 text-slate-600";
                 return (
@@ -364,7 +497,7 @@ export default function MedicalExamPage() {
             <div className="p-10 overflow-y-auto space-y-10 flex-1">
               <div className="grid grid-cols-3 gap-6">
                 <div className="bg-teal-50 p-6 rounded-2xl border border-teal-100 text-center">
-                  <p className="text-3xl font-black text-teal-600 mb-1">{Object.keys(answers).length}</p>
+                  <p className="text-3xl font-black text-teal-600 mb-1">{Object.values(answers).filter(hasAnswer).length}</p>
                   <p className="text-[9px] font-bold text-teal-800 uppercase tracking-widest">Attempted</p>
                 </div>
                 <div className="bg-amber-50 p-6 rounded-2xl border border-amber-100 text-center">
@@ -373,7 +506,7 @@ export default function MedicalExamPage() {
                 </div>
                 <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-center">
                   <p className="text-3xl font-black text-slate-400">
-                    {sections.reduce((acc, s) => acc + s.questions.length, 0) - Object.keys(answers).length}
+                    {sections.reduce((acc, s) => acc + s.questions.length, 0) - Object.values(answers).filter(hasAnswer).length}
                   </p>
                   <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Unanswered</p>
                 </div>
@@ -383,7 +516,7 @@ export default function MedicalExamPage() {
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Diagnostic Breakdown</h3>
                 <div className="space-y-3">
                   {sections.map((s) => {
-                    const answeredInSection = s.questions.filter(q => answers[`${s.id}-${q.id}`]).length;
+                    const answeredInSection = s.questions.filter(q => hasAnswer(answers[`${s.id}-${q.id}`])).length;
                     return (
                       <div key={s.id} className="flex items-center justify-between p-5 bg-white border border-slate-100 rounded-xl hover:shadow-lg transition-shadow">
                         <span className="font-black text-slate-700 text-[10px] uppercase tracking-widest">{s.section_name}</span>
@@ -424,3 +557,4 @@ export default function MedicalExamPage() {
     </div>
   );
 }
+

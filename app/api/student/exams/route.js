@@ -1,11 +1,8 @@
-import { db } from "@/lib/db";
-import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
-
-const SECRET = "student-secret-key";
+import { db } from "@/lib/db";
+import { verifyStudentToken } from "@/lib/student-auth";
 
 export async function GET() {
-  /* ---------------- AUTH ---------------- */
   const cookieStore = await cookies();
   const token = cookieStore.get("student_token")?.value;
 
@@ -15,73 +12,78 @@ export async function GET() {
 
   let student;
   try {
-    student = jwt.verify(token, SECRET);
+    student = verifyStudentToken(token);
   } catch {
     return Response.json({ message: "Invalid token" }, { status: 401 });
   }
 
-  const student_id = student.id;
+  const studentId = student.id;
 
-  /* -------- STUDENT CLASS & BATCH -------- */
   const [[meta]] = await db.query(
     `
-    SELECT 
-      sc.class_id,
-      sb.batch_id
+    SELECT
+      (
+        SELECT sc.class_id
+        FROM student_classes sc
+        WHERE sc.student_id = s.id
+        ORDER BY (sc.status = 'active') DESC, sc.id DESC
+        LIMIT 1
+      ) AS class_id,
+      (
+        SELECT sb.batch_id
+        FROM student_batches sb
+        WHERE sb.student_id = s.id
+        ORDER BY (sb.status = 'active') DESC, sb.id DESC
+        LIMIT 1
+      ) AS batch_id
     FROM students s
-    LEFT JOIN student_classes sc ON sc.student_id = s.id
-    LEFT JOIN student_batches sb ON sb.student_id = s.id
     WHERE s.id = ?
+    LIMIT 1
     `,
-    [student_id]
+    [studentId]
   );
-  console.log(student_id)
-  const classId = meta?.class_id || null;
-  const batchId = meta?.batch_id || null;
 
-  /* ----------- ELIGIBLE EXAMS ------------ */
+  const classId = meta?.class_id ?? null;
+  const batchId = meta?.batch_id ?? null;
+
   const [rows] = await db.query(
     `
-    SELECT DISTINCT
+    SELECT
       e.id,
       e.title,
       e.duration_minutes,
+      e.total_questions,
+      e.exam_theme,
       e.start_time,
       e.end_time,
-
-      a.status       AS attempt_status,
-      a.start_time   AS attempt_start
-
+      a.status AS attempt_status,
+      a.start_time AS attempt_start
     FROM exams e
-
-    /* attempt (resume / submitted) */
     LEFT JOIN exam_attempts a
       ON a.exam_id = e.id AND a.student_id = ?
-
-    /* class eligibility */
-    LEFT JOIN exam_classes ec
-      ON ec.exam_id = e.id
-
-    /* batch eligibility */
-    LEFT JOIN exam_batches eb
-      ON eb.exam_id = e.id
-
-    /* explicit registration */
-    LEFT JOIN exam_registrations er
-      ON er.exam_id = e.id AND er.student_id = ?
-
     WHERE
       e.status = 'published'
-      AND NOW() BETWEEN e.start_time AND e.end_time
+      AND NOW() BETWEEN COALESCE(e.start_time, NOW()) AND COALESCE(e.end_time, NOW())
       AND (
-        ec.class_id = ?
-        OR eb.batch_id = ?
-        OR er.student_id IS NOT NULL
+        EXISTS (
+          SELECT 1
+          FROM exam_classes ec
+          WHERE ec.exam_id = e.id AND ec.class_id = ?
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM exam_batches eb
+          WHERE eb.exam_id = e.id AND eb.batch_id = ?
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM exam_registrations er
+          WHERE er.exam_id = e.id AND er.student_id = ?
+        )
       )
-
-    ORDER BY e.start_time ASC
+    ORDER BY e.start_time ASC, e.id DESC
     `,
-    [student_id, student_id, classId, batchId]
+    [studentId, classId, batchId, studentId]
   );
 
   return Response.json(rows);

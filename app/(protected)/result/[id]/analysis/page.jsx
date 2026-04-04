@@ -26,25 +26,21 @@ export default function ResultAnalysisPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <button
           onClick={() => router.back()}
-          className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+          className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
         >
           <ArrowLeft size={16} />
           Back
         </button>
 
         <div className="glass-panel px-5 py-4">
-          <p className="text-xs uppercase tracking-[0.22em] text-slate-400">
-            Analysis
-          </p>
-          <p className="mt-2 font-display text-2xl tracking-[-0.04em] text-slate-900">
-            {result?.exam_title}
-          </p>
+          <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Analysis</p>
+          <p className="mt-2 font-display text-2xl tracking-[-0.04em] text-slate-950">{result?.exam_title}</p>
         </div>
       </div>
 
       <div className="space-y-5">
         {questions.map((question, index) => (
-          <QuestionCard key={question.id} q={question} index={index} />
+          <QuestionCard key={question.key || `${question.section_id}-${question.id}`} q={question} index={index} />
         ))}
       </div>
     </div>
@@ -52,8 +48,14 @@ export default function ResultAnalysisPage() {
 }
 
 function QuestionCard({ q, index }) {
+  const selectedOptionIds = Array.isArray(q.selected_option_ids)
+    ? q.selected_option_ids.map(Number)
+    : q.selected_option_id == null
+      ? []
+      : [Number(q.selected_option_id)];
+
   const status =
-    q.selected_option_id == null ? "skipped" : q.is_correct ? "correct" : "wrong";
+    selectedOptionIds.length === 0 ? "skipped" : q.is_correct ? "correct" : "wrong";
 
   const statusMap = {
     correct: {
@@ -80,9 +82,8 @@ function QuestionCard({ q, index }) {
     <div className={`glass-panel overflow-hidden border ${statusMap[status].border}`}>
       <div className="flex flex-col gap-4 border-b border-slate-200/80 bg-slate-50/80 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.22em] text-slate-400">
-            Question {index + 1}
-          </p>
+          <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Question {index + 1}</p>
+          {q.section_name ? <p className="mt-2 text-sm font-semibold text-slate-700">{q.section_name}</p> : null}
         </div>
         <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${statusMap[status].badge}`}>
           {statusMap[status].icon}
@@ -92,14 +93,14 @@ function QuestionCard({ q, index }) {
 
       <div className="space-y-6 px-6 py-6">
         <div
-          className="prose max-w-none prose-p:my-2 prose-img:rounded-xl prose-img:shadow-sm"
+          className="prose max-w-none prose-headings:text-slate-950 prose-p:my-2 prose-p:text-slate-700 prose-strong:text-slate-950 prose-img:rounded-xl prose-img:shadow-sm"
           dangerouslySetInnerHTML={{ __html: q.question_text }}
         />
 
         <div className="space-y-3">
           {q.options.map((opt, i) => {
-            const isCorrect = opt.is_correct === 1;
-            const isSelected = opt.id === q.selected_option_id;
+            const isCorrect = Number(opt.is_correct) === 1;
+            const isSelected = selectedOptionIds.includes(Number(opt.id));
 
             let optionClass = "border-slate-200 bg-white";
             if (isCorrect) optionClass = "border-emerald-200 bg-emerald-50";
@@ -108,24 +109,22 @@ function QuestionCard({ q, index }) {
             return (
               <div key={opt.id} className={`rounded-[22px] border px-4 py-4 ${optionClass}`}>
                 <div className="flex gap-3">
-                  <span className="font-semibold text-slate-600">
-                    {String.fromCharCode(65 + i)}.
-                  </span>
-                  <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: opt.option_text }} />
+                  <span className="font-semibold text-slate-600">{String.fromCharCode(65 + i)}.</span>
+                  <div className="prose max-w-none prose-p:my-1 prose-p:text-slate-700" dangerouslySetInnerHTML={{ __html: opt.option_text }} />
                 </div>
               </div>
             );
           })}
         </div>
 
-        <div className="rounded-[22px] bg-slate-50 px-4 py-4 text-sm text-slate-600">
-          Marks awarded: <span className="font-semibold text-slate-900">{q.marks_awarded ?? 0}</span>
+        <div className="soft-panel px-4 py-4 text-sm text-slate-600">
+          Marks awarded: <span className="font-semibold text-slate-950">{q.marks_awarded ?? 0}</span>
         </div>
 
         {q.explanation ? (
           <div className="rounded-[24px] bg-sky-50 px-5 py-5">
             <p className="mb-3 text-sm font-semibold text-sky-800">Explanation</p>
-            <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: q.explanation }} />
+            <div className="prose max-w-none prose-p:my-1 prose-p:text-slate-700" dangerouslySetInnerHTML={{ __html: q.explanation }} />
           </div>
         ) : null}
       </div>

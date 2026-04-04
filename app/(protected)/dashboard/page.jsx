@@ -98,18 +98,18 @@ export default function StudentDashboard() {
 
   return (
     <div className="space-y-8">
-      <section className="relative overflow-hidden rounded-[32px] bg-slate-950 px-6 py-7 text-white shadow-[0_30px_90px_rgba(15,23,42,0.18)] sm:px-8 sm:py-8">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.24),_transparent_26%),radial-gradient(circle_at_bottom_right,_rgba(52,211,153,0.18),_transparent_22%)]" />
-        <div className="relative grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
+      <section className="relative overflow-hidden rounded-[34px] bg-slate-950 px-6 py-7 text-white shadow-[0_32px_90px_rgba(15,23,42,0.18)] sm:px-8 sm:py-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.24),_transparent_26%),radial-gradient(circle_at_bottom_right,_rgba(52,211,153,0.18),_transparent_22%),linear-gradient(135deg,_rgba(255,255,255,0.05),_transparent)]" />
+        <div className="relative grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
           <div>
             <p className="eyebrow border-white/15 bg-white/10 text-cyan-100">
-              Dashboard
+              Student overview
             </p>
             <h1 className="mt-5 font-display text-4xl tracking-[-0.05em] sm:text-5xl">
               {loading ? "Preparing your workspace..." : `Welcome back, ${profile?.name}`}
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-              Your student panel now brings exams, alerts, results, and profile details into one focused experience with clearer hierarchy and faster scanning.
+              Your student panel is now organized around faster scanning, clearer priorities, and a calmer visual rhythm across exams, results, and records.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -130,28 +130,15 @@ export default function StudentDashboard() {
             </div>
           </div>
 
-          <div className="rounded-[28px] border border-white/10 bg-white/8 p-5 backdrop-blur">
+          <div className="rounded-[30px] border border-white/10 bg-white/8 p-5 backdrop-blur">
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100">
               Focus card
             </p>
             <div className="mt-5 space-y-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-slate-300">
-                  Registration
-                </p>
-                <p className="mt-2 text-lg font-semibold text-white">
-                  {profile?.regNo || "Loading"}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-slate-300">
-                  Current course
-                </p>
-                <p className="mt-2 text-sm leading-6 text-slate-200">
-                  {profile?.course || "Fetching student details"}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-white/8 px-4 py-4">
+              <FocusLine label="Registration" value={profile?.regNo || "Loading"} />
+              <FocusLine label="Current course" value={profile?.course || "Fetching student details"} subdued />
+              <FocusLine label="Semester" value={profile?.semester || "Syncing records"} subdued />
+              <div className="rounded-[22px] bg-white/8 px-4 py-4">
                 <p className="text-xs uppercase tracking-[0.22em] text-slate-300">
                   Next key milestone
                 </p>
@@ -181,7 +168,7 @@ export default function StudentDashboard() {
                 <p className="eyebrow">Upcoming</p>
                 <h2 className="mt-4 section-title text-[2rem]">Exam timeline</h2>
                 <p className="section-copy mt-3">
-                  Review your nearest assessments and keep preparation aligned with dates that matter.
+                  Review your nearest assessments and keep preparation aligned with dates that matter most.
                 </p>
               </div>
               <CalendarDays className="mt-1 text-sky-600" size={22} />
@@ -191,18 +178,18 @@ export default function StudentDashboard() {
               {(loading ? Array.from({ length: 3 }) : upcomingExams).map((exam, index) => (
                 <div
                   key={exam?.id || index}
-                  className="flex flex-col gap-4 rounded-[24px] border border-slate-200/80 bg-white/80 p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                  className="soft-panel flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
                     <div className="mb-2 flex items-center gap-2">
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-700">
+                      <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-white">
                         {loading ? "Loading" : exam.status}
                       </span>
                     </div>
-                    <p className="text-lg font-semibold text-slate-900">
+                    <p className="text-lg font-semibold text-slate-950">
                       {loading ? "Loading exam title" : exam.title}
                     </p>
-                    <p className="mt-1 text-sm text-slate-700">
+                    <p className="mt-1 text-sm text-slate-600">
                       {loading ? "Loading schedule" : exam.date}
                     </p>
                   </div>
@@ -257,31 +244,7 @@ export default function StudentDashboard() {
 
             <div className="mt-6 space-y-4">
               {(loading ? Array.from({ length: 3 }) : announcements).map((item, index) => (
-                <div
-                  key={item?.id || index}
-                  className="rounded-[22px] border border-slate-200/80 bg-white/80 p-5"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-slate-900">
-                      {loading ? "Loading alert" : item.title}
-                    </p>
-                    <span className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] ${
-                      item?.urgency === "high"
-                        ? "bg-rose-100 text-rose-700"
-                        : item?.urgency === "medium"
-                        ? "bg-amber-100 text-amber-700"
-                        : "bg-emerald-100 text-emerald-700"
-                    }`}>
-                      {loading ? "..." : item.urgency}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-700">
-                    {loading ? "Loading alert details" : item.content}
-                  </p>
-                  <p className="mt-3 text-xs uppercase tracking-[0.2em] text-slate-500">
-                    {loading ? "..." : item.time}
-                  </p>
-                </div>
+                <AnnouncementCard key={item?.id || index} item={item} loading={loading} />
               ))}
             </div>
           </div>
@@ -291,7 +254,7 @@ export default function StudentDashboard() {
             <h2 className="mt-4 section-title text-[2rem]">Recent activity</h2>
             <div className="mt-6 space-y-4">
               {(loading ? Array.from({ length: 3 }) : recentActivity).map((item, index) => (
-                <div key={item?.id || index} className="flex items-start gap-4 rounded-[22px] bg-slate-50 px-4 py-4">
+                <div key={item?.id || index} className="soft-panel flex items-start gap-4 px-4 py-4">
                   <div className="mt-1 h-3 w-3 rounded-full bg-sky-500" />
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-slate-900">
@@ -311,18 +274,29 @@ export default function StudentDashboard() {
   );
 }
 
+function FocusLine({ label, value, subdued = false }) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-[0.22em] text-slate-300">{label}</p>
+      <p className={`mt-2 ${subdued ? "text-sm leading-6 text-slate-200" : "text-lg font-semibold text-white"}`}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
 function StatCard({ title, value, note, icon, accent }) {
   return (
-    <div className="glass-panel p-5">
+    <div className="metric-card">
       <div className="flex items-start justify-between gap-4">
-        <div className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${accent} text-white shadow-lg`}>
+        <div className={`metric-card-accent bg-gradient-to-br ${accent}`}>
           {icon}
         </div>
         <div className="text-right">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
             {title}
           </p>
-          <p className="mt-3 font-display text-4xl tracking-[-0.04em] text-slate-900">
+          <p className="mt-3 font-display text-4xl tracking-[-0.04em] text-slate-950">
             {value}
           </p>
           <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-600">
@@ -358,11 +332,38 @@ function ProgressRow({ label, value, tone = "sky" }) {
 
 function QuickAction({ icon, title }) {
   return (
-    <button className="rounded-[22px] border border-slate-200 bg-white px-4 py-5 text-left transition hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-md">
+    <button className="soft-panel px-4 py-5 text-left transition hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-md">
       <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
         {icon}
       </div>
       <p className="text-sm font-semibold text-slate-900">{title}</p>
     </button>
+  );
+}
+
+function AnnouncementCard({ item, loading }) {
+  return (
+    <div className="soft-panel px-5 py-5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-slate-900">
+          {loading ? "Loading alert" : item.title}
+        </p>
+        <span className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] ${
+          item?.urgency === "high"
+            ? "bg-rose-100 text-rose-700"
+            : item?.urgency === "medium"
+            ? "bg-amber-100 text-amber-700"
+            : "bg-emerald-100 text-emerald-700"
+        }`}>
+          {loading ? "..." : item.urgency}
+        </span>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-slate-700">
+        {loading ? "Loading alert details" : item.content}
+      </p>
+      <p className="mt-3 text-xs uppercase tracking-[0.2em] text-slate-500">
+        {loading ? "..." : item.time}
+      </p>
+    </div>
   );
 }

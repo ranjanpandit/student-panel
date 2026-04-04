@@ -51,7 +51,7 @@ export default function StudentProfilePage() {
   if (loading) {
     return (
       <div className="glass-panel px-6 py-16 text-center">
-        <p className="font-display text-3xl tracking-[-0.04em] text-slate-900">
+        <p className="font-display text-3xl tracking-[-0.04em] text-slate-950">
           Loading student profile
         </p>
         <p className="mt-3 text-sm text-slate-600">
@@ -73,7 +73,7 @@ export default function StudentProfilePage() {
 
   return (
     <div className="space-y-8">
-      <section className="overflow-hidden rounded-[32px] bg-slate-950 text-white shadow-[0_30px_90px_rgba(15,23,42,0.18)]">
+      <section className="overflow-hidden rounded-[34px] bg-slate-950 text-white shadow-[0_32px_90px_rgba(15,23,42,0.18)]">
         <div className="grid gap-6 px-6 py-8 sm:px-8 lg:grid-cols-[1.2fr_0.8fr]">
           <div>
             <p className="eyebrow border-white/15 bg-white/10 text-cyan-100">
@@ -83,14 +83,14 @@ export default function StudentProfilePage() {
               {personal.first_name} {personal.last_name}
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
-              A clearer profile view for student identity, enrollment details, and payment records.
+              A cleaner profile view for student identity, enrollment details, and payment records.
             </p>
           </div>
 
-          <div className="rounded-[28px] border border-white/10 bg-white/8 p-5 backdrop-blur">
+          <div className="rounded-[30px] border border-white/10 bg-white/8 p-5 backdrop-blur">
             <div className="space-y-4">
               {topStats.map((item) => (
-                <div key={item.label} className="rounded-2xl bg-white/8 px-4 py-4">
+                <div key={item.label} className="rounded-[22px] bg-white/8 px-4 py-4">
                   <p className="text-xs uppercase tracking-[0.22em] text-slate-400">
                     {item.label}
                   </p>
@@ -112,7 +112,7 @@ export default function StudentProfilePage() {
             className={`inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
               activeTab === tab.id
                 ? "bg-slate-950 text-white shadow-lg"
-                : "bg-white text-slate-700 shadow-sm hover:bg-slate-50"
+                : "border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
             }`}
           >
             {tab.icon}
@@ -134,7 +134,7 @@ export default function StudentProfilePage() {
                 <InfoBlock label="Email" value={personal.email} />
                 <InfoBlock label="Phone" value={personal.phone} />
               </div>
-              <div className="mt-6 rounded-[24px] bg-slate-50 px-5 py-5">
+              <div className="soft-panel mt-6 px-5 py-5">
                 <div className="mb-2 flex items-center gap-2 text-slate-700">
                   <MapPin size={16} />
                   <span className="text-sm font-semibold">Residential address</span>
@@ -180,14 +180,14 @@ export default function StudentProfilePage() {
                 {(financial.payments || []).map((payment) => (
                   <div
                     key={payment.id}
-                    className="flex flex-col gap-3 rounded-[24px] border border-slate-200 bg-white/80 p-5 sm:flex-row sm:items-center sm:justify-between"
+                    className="soft-panel flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div>
-                      <p className="text-lg font-semibold text-slate-900">
+                      <p className="text-lg font-semibold text-slate-950">
                         Rs. {payment.amount}
                       </p>
                       <p className="mt-1 text-sm text-slate-600">
-                        {payment.payment_mode} · Ref: {payment.reference_no}
+                        {payment.payment_mode} | Ref: {payment.reference_no}
                       </p>
                     </div>
                     <div className="text-xs uppercase tracking-[0.2em] text-slate-400">
@@ -212,7 +212,7 @@ export default function StudentProfilePage() {
           </Panel>
 
           <div className="glass-panel overflow-hidden p-6">
-            <div className="rounded-[26px] bg-gradient-to-br from-sky-600 via-cyan-600 to-emerald-500 px-6 py-6 text-white">
+            <div className="rounded-[28px] bg-gradient-to-br from-sky-600 via-cyan-600 to-emerald-500 px-6 py-6 text-white">
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100">
                 Academic alert
               </p>
@@ -243,7 +243,7 @@ function Panel({ title, copy, children }) {
 
 function InfoBlock({ label, value }) {
   return (
-    <div className="rounded-[24px] bg-slate-50 px-5 py-5">
+    <div className="soft-panel px-5 py-5">
       <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
         {label}
       </p>
@@ -256,7 +256,7 @@ function InfoBlock({ label, value }) {
 
 function RowItem({ title, subtitle, status }) {
   return (
-    <div className="rounded-[24px] border border-slate-200 bg-white/80 px-5 py-5">
+    <div className="soft-panel px-5 py-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-semibold text-slate-900">{title}</p>
@@ -287,7 +287,7 @@ function StatRow({ label, value, emphasize = false }) {
 
 function EmptyState({ message }) {
   return (
-    <div className="rounded-[24px] bg-slate-50 px-5 py-6 text-sm text-slate-500">
+    <div className="soft-panel px-5 py-6 text-sm text-slate-500">
       {message}
     </div>
   );

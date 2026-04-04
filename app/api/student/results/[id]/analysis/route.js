@@ -1,120 +1,112 @@
 import { db } from "@/lib/db";
-import jwt from "jsonwebtoken";
+import { verifyStudentToken } from "@/lib/student-auth";
 
-const SECRET = process.env.JWT_SECRET;
-
-/* ===== SAFE COOKIE READER ===== */
 function getCookie(req, name) {
   const cookieHeader = req.headers.get("cookie");
   if (!cookieHeader) return null;
 
   return cookieHeader
     .split(";")
-    .map(c => c.trim())
-    .find(c => c.startsWith(name + "="))
+    .map((cookie) => cookie.trim())
+    .find((cookie) => cookie.startsWith(name + "="))
     ?.split("=")[1];
 }
 
 export async function GET(req, { params }) {
   try {
-    const {id} = await params;
-
-    /* ================= AUTH ================= */
+    const { id } = await params;
     const token = getCookie(req, "student_token");
-    if (!token)
+
+    if (!token) {
       return Response.json({ message: "Unauthorized" }, { status: 401 });
+    }
 
-    const student = jwt.verify(token, SECRET);
+    const student = verifyStudentToken(token);
 
-    /* ================= RESULT ================= */
     const [[result]] = await db.query(
       `
       SELECT er.*, e.title AS exam_title
       FROM exam_results er
       JOIN exams e ON e.id = er.exam_id
-      WHERE er.id=? AND er.student_id=?
+      WHERE er.id = ? AND er.student_id = ?
       `,
       [id, student.id]
     );
 
-    if (!result)
+    if (!result) {
       return Response.json({ message: "Result not found" }, { status: 404 });
+    }
 
-    /* ================= QUESTION ANALYSIS ================= */
     const [rows] = await db.query(
       `
       SELECT
-          esq.section_id,
-          eps.section_name,
-
-          q.id AS question_id,
-          q.question_text,
-          q.explanation,
-
-          qo.id AS option_id,
-          qo.option_text,
-          qo.is_correct,
-
-          ea.selected_option_id,
-          ea.is_correct AS student_correct,
-          ea.marks_awarded
-
+        ea.section_id,
+        eps.section_name,
+        q.id AS question_id,
+        q.question_type,
+        q.question_text,
+        q.explanation,
+        qo.id AS option_id,
+        qo.option_text,
+        qo.is_correct,
+        ea.selected_option_id,
+        ea.selected_option_ids_json,
+        ea.is_correct AS student_correct,
+        ea.marks_awarded
       FROM exam_answers ea
-
-      JOIN exam_section_questions esq
-          ON esq.question_id = ea.question_id
-
-      JOIN exam_pattern_sections eps
-          ON eps.id = esq.section_id
-
+      LEFT JOIN exam_pattern_sections eps
+        ON eps.id = ea.section_id
       JOIN questions q
-          ON q.id = ea.question_id
-
+        ON q.id = ea.question_id
       LEFT JOIN question_options qo
-          ON qo.question_id = q.id
-
+        ON qo.question_id = q.id
       WHERE ea.exam_result_id = ?
-
-      ORDER BY esq.section_id, q.id, qo.id
+      ORDER BY ea.section_id, q.id, qo.id
       `,
       [id]
     );
 
-    /* ================= GROUP QUESTIONS ================= */
+    const questionMap = new Map();
 
-    const questionMap = {};
+    rows.forEach((row) => {
+      const key = `${row.section_id ?? 0}-${row.question_id}`;
 
-    rows.forEach(r => {
-      if (!questionMap[r.question_id]) {
-        questionMap[r.question_id] = {
-          id: r.question_id,
-          section_id: r.section_id,
-          section_name: r.section_name,
-          question_text: r.question_text,
-          explanation: r.explanation,
-          selected_option_id: r.selected_option_id,
-          is_correct: r.student_correct,
-          marks_awarded: r.marks_awarded,
+      if (!questionMap.has(key)) {
+        questionMap.set(key, {
+          id: row.question_id,
+          key,
+          section_id: row.section_id,
+          section_name: row.section_name,
+          question_type: row.question_type,
+          question_text: row.question_text,
+          explanation: row.explanation,
+          selected_option_id: row.selected_option_id,
+          selected_option_ids: row.selected_option_ids_json
+            ? JSON.parse(row.selected_option_ids_json)
+            : row.selected_option_id == null
+              ? []
+              : [row.selected_option_id],
+          is_correct: row.student_correct,
+          marks_awarded: row.marks_awarded,
           options: [],
-        };
+        });
       }
 
-      if (r.option_id) {
-        questionMap[r.question_id].options.push({
-          id: r.option_id,
-          option_text: r.option_text,
-          is_correct: r.is_correct,
+      if (row.option_id) {
+        questionMap.get(key).options.push({
+          id: row.option_id,
+          option_text: row.option_text,
+          is_correct: row.is_correct,
         });
       }
     });
 
     return Response.json({
       result,
-      questions: Object.values(questionMap),
+      questions: Array.from(questionMap.values()),
     });
-
   } catch (err) {
-    console.error("ANALYSIS API ERROR:", err);
+    console.error("ANALYSIS_API_ERROR:", err);
     return Response.json({ message: "Server Error" }, { status: 500 });
   }
 }

@@ -1,8 +1,6 @@
 import { db } from "@/lib/db";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-
-const SECRET = "student-secret-key"; // move to env later
+import { signStudentToken } from "@/lib/student-auth";
 
 export async function POST(req) {
   const { email, password } = await req.json();
@@ -13,11 +11,12 @@ export async function POST(req) {
       { status: 400 }
     );
   }
-  
+
   const [[student]] = await db.query(
-    `SELECT * FROM students WHERE email=? LIMIT 1`,
+    `SELECT * FROM students WHERE email = ? LIMIT 1`,
     [email]
   );
+
   if (!student) {
     return Response.json(
       { message: "Invalid credentials" },
@@ -34,9 +33,8 @@ export async function POST(req) {
     );
   }
 
-  const token = jwt.sign(
+  const token = signStudentToken(
     { id: student.id, role: "student" },
-    SECRET,
     { expiresIn: "7d" }
   );
 
@@ -45,7 +43,7 @@ export async function POST(req) {
     token,
     student: {
       id: student.id,
-      name: student.name,
+      name: [student.first_name, student.last_name].filter(Boolean).join(" ").trim(),
       email: student.email,
     },
   });

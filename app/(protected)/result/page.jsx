@@ -55,11 +55,9 @@ export default function StudentResultsPage() {
       <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="glass-panel p-6 sm:p-8">
           <p className="eyebrow">Results</p>
-          <h1 className="mt-4 font-display text-4xl tracking-[-0.05em] text-slate-900 sm:text-5xl">
-            My academic performance
-          </h1>
-          <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-700 sm:text-base">
-            Review published exam outcomes with stronger visual hierarchy and a clearer score summary.
+          <h1 className="page-title mt-4">My academic performance</h1>
+          <p className="page-copy mt-4 max-w-2xl">
+            Review published exam outcomes with stronger contrast, clearer score hierarchy, and direct access to detailed analysis.
           </p>
         </div>
 
@@ -72,10 +70,10 @@ export default function StudentResultsPage() {
 
       {results.length === 0 ? (
         <div className="glass-panel px-6 py-16 text-center">
-          <p className="font-display text-3xl tracking-[-0.04em] text-slate-900">
+          <p className="font-display text-3xl tracking-[-0.04em] text-slate-950">
             No examination records found
           </p>
-          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-700">
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-600">
             Published results will appear here when your institution releases them.
           </p>
         </div>
@@ -85,15 +83,26 @@ export default function StudentResultsPage() {
             <button
               key={result.id}
               onClick={() => router.push(`/result/${result.id}`)}
-              className="glass-panel group flex h-full flex-col p-0 text-left transition hover:-translate-y-1 hover:shadow-[0_28px_80px_rgba(15,23,42,0.12)]"
+              className="glass-panel group flex h-full flex-col overflow-hidden p-0 text-left transition hover:-translate-y-1 hover:shadow-[0_28px_80px_rgba(15,23,42,0.12)]"
             >
-              <div className="rounded-t-[24px] bg-slate-950 px-6 py-5 text-white">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">
-                  Examination
-                </p>
-                <h2 className="mt-3 font-display text-3xl leading-tight tracking-[-0.04em]">
-                  {result.exam_title}
-                </h2>
+              <div className="rounded-t-[28px] bg-slate-950 px-6 py-5 text-white">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">
+                      Examination
+                    </p>
+                    <h2 className="mt-3 font-display text-3xl leading-tight tracking-[-0.04em]">
+                      {result.exam_title}
+                    </h2>
+                  </div>
+                  <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${
+                    result.result_status === "pass"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-rose-100 text-rose-700"
+                  }`}>
+                    {result.result_status}
+                  </span>
+                </div>
               </div>
 
               <div className="flex flex-1 flex-col px-6 py-6">
@@ -102,7 +111,7 @@ export default function StudentResultsPage() {
                     <p className="text-xs uppercase tracking-[0.22em] text-slate-500">
                       Score
                     </p>
-                    <p className="mt-2 font-display text-4xl tracking-[-0.04em] text-slate-900">
+                    <p className="mt-2 font-display text-4xl tracking-[-0.04em] text-slate-950">
                       {result.obtained_marks}
                       <span className="mx-1 text-slate-300">/</span>
                       {result.total_marks}
@@ -129,7 +138,7 @@ export default function StudentResultsPage() {
 
                 <div className="mt-6 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-slate-500">
                   <span>{new Date(result.created_at).toLocaleDateString()}</span>
-                  <span className="inline-flex items-center gap-1 text-slate-600">
+                  <span className="inline-flex items-center gap-1 text-slate-700">
                     Open details
                     <ArrowRight size={14} />
                   </span>
@@ -151,14 +160,14 @@ function SummaryCard({ label, value, icon, tone = "sky" }) {
   };
 
   return (
-    <div className="rounded-[24px] border border-slate-200 bg-white/80 p-5">
+    <div className="soft-panel px-5 py-5">
       <div className="flex items-center justify-between gap-4">
         <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${tones[tone]}`}>
           {icon}
         </div>
         <div className="text-right">
           <p className="text-xs uppercase tracking-[0.22em] text-slate-500">{label}</p>
-          <p className="mt-2 font-display text-4xl tracking-[-0.04em] text-slate-900">{value}</p>
+          <p className="mt-2 font-display text-4xl tracking-[-0.04em] text-slate-950">{value}</p>
         </div>
       </div>
     </div>

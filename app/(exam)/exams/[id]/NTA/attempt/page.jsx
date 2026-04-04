@@ -16,6 +16,10 @@ export default function NtaExamPage() {
   const [examName, setExamName] = useState("");
   const [studentName, setStudentName] = useState("");
   const [sections, setSections] = useState([]);
+  const [pattern, setPattern] = useState({
+    allow_section_switch: 1,
+    allow_review: 1,
+  });
   const [current, setCurrent] = useState({ s: 0, q: 0 });
   const [answers, setAnswers] = useState({});
   const [visited, setVisited] = useState({});
@@ -28,11 +32,15 @@ export default function NtaExamPage() {
   const [fsViolations, setFsViolations] = useState(0);
   const [showSummary, setShowSummary] = useState(false);
   const [showForceSubmit, setShowForceSubmit] = useState(false);
+  const [showClosePrompt, setShowClosePrompt] = useState(false);
 
   const submittedRef = useRef(false);
+  const closingRef = useRef(false);
   const submitReasonRef = useRef(null);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const questionTimesRef = useRef({});
+  const activeQuestionRef = useRef({ key: null, startedAt: null });
 
   /* =========================
       SYSTEM LOAD (KEEP LOGIC)
@@ -42,11 +50,27 @@ export default function NtaExamPage() {
       try {
         const res = await fetch(`/api/exams/${id}/attempt`);
         const d = await res.json();
+        if (!res.ok) {
+          throw new Error(d.message || "Unable to load exam");
+        }
         setExamName(d.exam_name || "JEE-Main");
         setStudentName(d.student_name || "Candidate");
         setSections(d.sections || []);
+        setPattern(d.pattern || { allow_section_switch: 1, allow_review: 1 });
         setAnswers(d.answers || {});
+        questionTimesRef.current =
+          d.question_times && typeof d.question_times === "object"
+            ? d.question_times
+            : {};
         setTimeLeft(d.timeLeft || 10800); 
+        if (d.current_section_id) {
+          const sectionIndex = (d.sections || []).findIndex(
+            (section) => section.id === d.current_section_id
+          );
+          if (sectionIndex >= 0) {
+            setCurrent({ s: sectionIndex, q: 0 });
+          }
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -56,13 +80,56 @@ export default function NtaExamPage() {
     load();
   }, [id]);
 
+  const touchQuestionTimer = useCallback((force = false) => {
+    if (!started || !sections.length) return;
+    const section = sections[current.s];
+    const question = section?.questions?.[current.q];
+    if (!section || !question) return;
+
+    const key = `${section.id}-${question.id}`;
+    const now = Date.now();
+    const prev = activeQuestionRef.current;
+
+    if (prev.key === key && !force) return;
+
+    if (prev.key && prev.startedAt) {
+      const delta = Math.max(0, Math.floor((now - prev.startedAt) / 1000));
+      if (delta > 0) {
+        questionTimesRef.current[prev.key] =
+          Number(questionTimesRef.current[prev.key] || 0) + delta;
+      }
+    }
+
+    activeQuestionRef.current = { key, startedAt: now };
+  }, [current.q, current.s, sections, started]);
+
+  const getQuestionTimesSnapshot = useCallback(() => {
+    touchQuestionTimer(true);
+    return { ...questionTimesRef.current };
+  }, [touchQuestionTimer]);
+
+  useEffect(() => {
+    const returnFocusToOpener = () => {
+      if (window.opener && !window.opener.closed) {
+        try {
+          window.opener.focus();
+        } catch {}
+      }
+    };
+
+    window.addEventListener("beforeunload", returnFocusToOpener);
+    return () => {
+      window.removeEventListener("beforeunload", returnFocusToOpener);
+    };
+  }, []);
+
   /* =========================
       FUNCTIONALITY (KEEP LOGIC)
   ========================== */
-  const requestFullscreen = () => {
+  const requestFullscreen = async () => {
     const el = document.documentElement;
-    if (el.requestFullscreen) el.requestFullscreen();
-    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    if (el.requestFullscreen) await el.requestFullscreen();
+    else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
   };
 
   const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
@@ -73,24 +140,153 @@ export default function NtaExamPage() {
     return () => clearInterval(timer);
   }, [started]);
 
+  useEffect(() => {
+    touchQuestionTimer();
+  }, [touchQuestionTimer]);
+
+  useEffect(() => {
+    if (!sections.length) return;
+    const section = sections[current.s];
+    const question = section?.questions?.[current.q];
+    if (!section || !question) return;
+    const key = `${section.id}-${question.id}`;
+    setVisited((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  }, [current, sections]);
+
   async function finalSubmit() {
     if (submittedRef.current) return;
     submittedRef.current = true;
-    try { if (isFullscreen()) document.exitFullscreen(); } catch (e) {}
-    router.push("/dashboard");
+    try {
+      if (isFullscreen()) {
+        await document.exitFullscreen?.();
+      }
+    } catch (e) {}
+
+    const response = await fetch(`/api/exams/${id}/attempt/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reason: submitReasonRef.current || "MANUAL",
+        tabViolations,
+        fsViolations,
+        questionTimes: getQuestionTimesSnapshot(),
+      }),
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (result?.revealResult && result?.result?.resultId) {
+      router.push(`/result/${result.result.resultId}`);
+      return;
+    }
+
+    router.push("/exams");
   }
 
-  const saveAnswer = async (optionId) => {
+  function closeTest() {
+    setShowClosePrompt(true);
+  }
+
+  async function confirmCloseTest() {
+    closingRef.current = true;
+    setShowClosePrompt(false);
+    try {
+      if (isFullscreen()) {
+        await document.exitFullscreen?.();
+      }
+    } catch {}
+
+    if (window.opener && !window.opener.closed) {
+      window.opener.focus();
+      window.close();
+      return;
+    }
+
+    window.open("", "_self");
+    window.close();
+    router.push("/exams");
+  }
+
+  const persistAnswer = async (answerValue) => {
     const s = sections[current.s];
     const q = s.questions[current.q];
     const key = `${s.id}-${q.id}`;
-    setAnswers(p => ({ ...p, [key]: optionId }));
-    await fetch(`/api/exams/${id}/attempt/save`, {
+    const previousAnswer = answers[key];
+    setAnswers((p) => ({ ...p, [key]: answerValue }));
+    const response = await fetch(`/api/exams/${id}/attempt/save`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sectionId: s.id, questionId: q.id, answer: optionId, timeLeft }),
+      body: JSON.stringify({
+        sectionId: s.id,
+        questionId: q.id,
+        answer: answerValue,
+        timeLeft,
+        questionTimes: getQuestionTimesSnapshot(),
+      }),
     });
+
+    if (!response.ok) {
+      setAnswers((p) => {
+        const next = { ...p };
+        if (previousAnswer == null) {
+          delete next[key];
+        } else {
+          next[key] = previousAnswer;
+        }
+        return next;
+      });
+      throw new Error("Unable to save response");
+    }
   };
+
+  const saveAnswer = async (optionId) => {
+    try {
+      await persistAnswer(optionId);
+    } catch (error) {
+      console.error(error);
+      alert("We could not save this response. Please try again.");
+    }
+  };
+
+  const clearAnswer = async () => {
+    try {
+      await persistAnswer(null);
+    } catch (error) {
+      console.error(error);
+      alert("We could not clear this response. Please try again.");
+    }
+  };
+
+  function hasAnswer(value) {
+    return value != null && value !== "";
+  }
+
+  function moveNextQuestion() {
+    setCurrent((prev) => ({
+      ...prev,
+      q:
+        prev.q < section.questions.length - 1
+          ? prev.q + 1
+          : prev.q,
+    }));
+  }
+
+  function moveToQuestion(questionIndex) {
+    setCurrent((prev) => ({
+      ...prev,
+      q: Math.max(0, Math.min(questionIndex, section.questions.length - 1)),
+    }));
+  }
+
+  function toggleCurrentReview(markValue) {
+    setReview((prev) => ({ ...prev, [qKey]: markValue ?? !prev[qKey] }));
+  }
+
+  function moveToSection(sectionIndex) {
+    if (!pattern.allow_section_switch && sectionIndex !== current.s) {
+      return;
+    }
+    setCurrent({ s: sectionIndex, q: 0 });
+  }
 
   if (loading) return <div className="h-screen flex items-center justify-center">Loading NTA Interface...</div>;
 
@@ -98,7 +294,7 @@ export default function NtaExamPage() {
     <div className="min-h-screen bg-white flex items-center justify-center p-6">
       <div className="text-center border p-10 shadow-lg max-w-md w-full">
         <h1 className="text-xl font-bold mb-6 underline">EXAM SYSTEM READINESS</h1>
-        <button onClick={() => { requestFullscreen(); setStarted(true); }} className="bg-[#2c3e50] text-white px-10 py-3 font-bold">START EXAM</button>
+        <button onClick={async () => { await requestFullscreen(); setStarted(true); }} className="bg-[#2c3e50] text-white px-10 py-3 font-bold">START EXAM</button>
       </div>
     </div>
   );
@@ -130,8 +326,16 @@ export default function NtaExamPage() {
             </p>
           </div>
         </div>
-        <div className="border border-gray-300 p-2">
-          <select className="text-xs border p-1 outline-none"><option>English</option></select>
+        <div className="flex items-center gap-2">
+          <div className="border border-gray-300 p-2">
+            <select className="text-xs border p-1 outline-none"><option>English</option></select>
+          </div>
+          <button
+            onClick={closeTest}
+            className="border border-gray-300 bg-white px-3 py-2 text-[11px] font-bold uppercase hover:bg-gray-50"
+          >
+            Close test
+          </button>
         </div>
       </header>
 
@@ -140,8 +344,9 @@ export default function NtaExamPage() {
         {sections.map((s, i) => (
           <button
             key={s.id}
-            onClick={() => setCurrent({ s: i, q: 0 })}
-            className={`px-6 py-2 text-[12px] font-bold uppercase transition-colors whitespace-nowrap border-r border-slate-600 ${i === current.s ? "bg-white text-black" : "hover:bg-slate-700"}`}
+            onClick={() => moveToSection(i)}
+            disabled={!pattern.allow_section_switch && i !== current.s}
+            className={`px-6 py-2 text-[12px] font-bold uppercase transition-colors whitespace-nowrap border-r border-slate-600 ${i === current.s ? "bg-white text-black" : "hover:bg-slate-700"} ${!pattern.allow_section_switch && i !== current.s ? "cursor-not-allowed opacity-50" : ""}`}
           >
             {s.section_name}
           </button>
@@ -166,7 +371,7 @@ export default function NtaExamPage() {
                       name="answer" 
                       className="w-4 h-4 cursor-pointer" 
                       onChange={() => saveAnswer(opt.id)} 
-                      checked={answers[qKey] === opt.id} 
+                      checked={Number(answers[qKey]) === Number(opt.id)} 
                     />
                     <span className="text-[15px] group-hover:text-blue-700">
                        {idx + 1}) <span dangerouslySetInnerHTML={{ __html: opt.option_text }} />
@@ -180,16 +385,24 @@ export default function NtaExamPage() {
           {/* BOTTOM CONTROLS */}
           <div className="shrink-0 border-t border-gray-300">
             <div className="flex gap-2 p-3 bg-[#f8f9fa]">
-              <button className="bg-[#4caf50] text-white px-5 py-2 text-[12px] font-bold uppercase rounded border-b-2 border-green-800 shadow-sm">Save & Next</button>
-              <button onClick={() => setAnswers({...answers, [qKey]: null})} className="bg-white border text-gray-700 px-5 py-2 text-[12px] font-bold uppercase rounded shadow-sm">Clear</button>
-              <button className="bg-[#fb8c00] text-white px-5 py-2 text-[12px] font-bold uppercase rounded border-b-2 border-orange-800 shadow-sm">Save & Mark For Review</button>
-              <button onClick={() => setReview({...review, [qKey]: true})} className="bg-[#3f51b5] text-white px-5 py-2 text-[12px] font-bold uppercase rounded border-b-2 border-indigo-900 shadow-sm">Mark For Review & Next</button>
+              <button onClick={moveNextQuestion} className="bg-[#4caf50] text-white px-5 py-2 text-[12px] font-bold uppercase rounded border-b-2 border-green-800 shadow-sm">Save & Next</button>
+              <button onClick={clearAnswer} className="bg-white border text-gray-700 px-5 py-2 text-[12px] font-bold uppercase rounded shadow-sm">Clear</button>
+              {pattern.allow_review ? (
+                <button onClick={() => toggleCurrentReview()} className="bg-[#fb8c00] text-white px-5 py-2 text-[12px] font-bold uppercase rounded border-b-2 border-orange-800 shadow-sm">
+                  {review[qKey] ? "Unmark Review" : "Save & Mark For Review"}
+                </button>
+              ) : null}
+              {pattern.allow_review ? (
+                <button onClick={() => { toggleCurrentReview(); moveNextQuestion(); }} className="bg-[#3f51b5] text-white px-5 py-2 text-[12px] font-bold uppercase rounded border-b-2 border-indigo-900 shadow-sm">
+                  {review[qKey] ? "Unmark & Next" : "Mark For Review & Next"}
+                </button>
+              ) : null}
             </div>
             
             <div className="p-3 flex justify-between items-center border-t bg-gray-100">
                <div className="flex gap-2">
-                 <button onClick={() => setCurrent({...current, q: current.q > 0 ? current.q -1 : 0})} className="bg-white border px-4 py-1 text-xs font-bold shadow-sm">&lt;&lt; BACK</button>
-                 <button onClick={() => setCurrent({...current, q: current.q < section.questions.length -1 ? current.q + 1 : current.q})} className="bg-white border px-4 py-1 text-xs font-bold shadow-sm">NEXT &gt;&gt;</button>
+                 <button onClick={() => moveToQuestion(current.q - 1)} className="bg-white border px-4 py-1 text-xs font-bold shadow-sm">&lt;&lt; BACK</button>
+                 <button onClick={() => moveToQuestion(current.q + 1)} className="bg-white border px-4 py-1 text-xs font-bold shadow-sm">NEXT &gt;&gt;</button>
                </div>
                <button onClick={() => setShowSummary(true)} className="bg-[#4caf50] text-white px-10 py-1.5 text-xs font-bold uppercase shadow-md border-b-2 border-green-800">Submit</button>
             </div>
@@ -231,20 +444,23 @@ export default function NtaExamPage() {
                 {section.questions.map((q, i) => {
                   const k = `${section.id}-${q.id}`;
                   let statusStyle = "bg-white border border-gray-300 text-gray-500"; // Not Visited
-                  if (answers[k]) statusStyle = "bg-[#4caf50] text-white rounded-b-xl border-green-700"; // Answered
+                  const answered = hasAnswer(answers[k]);
+                  const marked = Boolean(review[k]);
+                  if (answered && marked) statusStyle = "bg-[#673ab7] text-white rounded-full border-indigo-900";
+                  else if (answered) statusStyle = "bg-[#4caf50] text-white rounded-b-xl border-green-700"; // Answered
                   else if (review[k]) statusStyle = "bg-[#673ab7] text-white rounded-full border-indigo-900"; // Review
                   else if (visited[k]) statusStyle = "bg-[#f44336] text-white rounded-t-xl border-red-700"; // Not Answered
 
                   return (
                     <button 
                       key={k} 
-                      onClick={() => {
-                        setCurrent({...current, q: i});
-                        setVisited({...visited, [k]: true});
-                      }}
-                      className={`h-9 w-10 text-[12px] font-bold flex items-center justify-center shadow-sm ${statusStyle} ${current.q === i ? "ring-2 ring-black ring-offset-1" : ""}`}
+                      onClick={() => moveToQuestion(i)}
+                      className={`relative h-9 w-10 text-[12px] font-bold flex items-center justify-center shadow-sm ${statusStyle} ${current.q === i ? "ring-2 ring-black ring-offset-1" : ""}`}
                     >
                       {i + 1}
+                      {answered && marked ? (
+                        <span className="absolute -bottom-1 -right-1 h-2.5 w-2.5 rounded-full border border-white bg-green-500" />
+                      ) : null}
                     </button>
                   );
                 })}
@@ -276,8 +492,8 @@ export default function NtaExamPage() {
                     {sections.map(s => (
                       <tr key={s.id} className="text-center font-bold">
                         <td className="border p-2">{s.section_name}</td>
-                        <td className="border p-2">{s.questions.filter(q => answers[`${s.id}-${q.id}`]).length}</td>
-                        <td className="border p-2">{s.questions.filter(q => review[`${s.id}-${q.id}`]).length}</td>
+                        <td className="border p-2">{s.questions.filter(q => hasAnswer(answers[`${s.id}-${q.id}`])).length}</td>
+                        <td className="border p-2">{s.questions.filter(q => Boolean(review[`${s.id}-${q.id}`])).length}</td>
                       </tr>
                     ))}
                  </tbody>
@@ -290,6 +506,31 @@ export default function NtaExamPage() {
           </div>
         </div>
       )}
+
+      {showClosePrompt ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-md border border-gray-300 bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-bold uppercase">Close test window?</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Closing now returns to exam list. Timer continues on server until submission.
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setShowClosePrompt(false)}
+                className="flex-1 border border-gray-300 px-4 py-2 text-sm font-bold uppercase hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmCloseTest}
+                className="flex-1 bg-[#2c3e50] px-4 py-2 text-sm font-bold uppercase text-white hover:bg-black"
+              >
+                Close test
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
