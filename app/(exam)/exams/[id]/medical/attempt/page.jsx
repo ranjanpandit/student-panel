@@ -121,6 +121,21 @@ export default function MedicalExamPage() {
     return { ...questionTimesRef.current };
   }, [touchQuestionTimer]);
 
+  const getCurrentSnapshotPayload = useCallback(() => {
+    if (!started || !sections.length) return null;
+    const section = sections[current.s];
+    const question = section?.questions?.[current.q];
+    if (!section || !question) return null;
+    const key = `${section.id}-${question.id}`;
+    return {
+      sectionId: section.id,
+      questionId: question.id,
+      answer: answers[key] ?? null,
+      timeLeft,
+      questionTimes: getQuestionTimesSnapshot(),
+    };
+  }, [answers, current.q, current.s, getQuestionTimesSnapshot, sections, started, timeLeft]);
+
   useEffect(() => {
     const returnFocusToOpener = () => {
       if (window.opener && !window.opener.closed) {
@@ -135,6 +150,34 @@ export default function MedicalExamPage() {
       window.removeEventListener("beforeunload", returnFocusToOpener);
     };
   }, []);
+
+  useEffect(() => {
+    const persistOnClose = () => {
+      const payload = getCurrentSnapshotPayload();
+      if (!payload) return;
+      try {
+        const body = JSON.stringify(payload);
+        if (navigator.sendBeacon) {
+          const blob = new Blob([body], { type: "application/json" });
+          navigator.sendBeacon(`/api/exams/${id}/attempt/save`, blob);
+          return;
+        }
+        fetch(`/api/exams/${id}/attempt/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true,
+        });
+      } catch {}
+    };
+
+    window.addEventListener("beforeunload", persistOnClose);
+    window.addEventListener("pagehide", persistOnClose);
+    return () => {
+      window.removeEventListener("beforeunload", persistOnClose);
+      window.removeEventListener("pagehide", persistOnClose);
+    };
+  }, [getCurrentSnapshotPayload, id]);
 
   /* =========================
       WEBCAM & PROCTORING
@@ -401,7 +444,7 @@ export default function MedicalExamPage() {
 
       <div className="flex flex-1 flex-col lg:flex-row overflow-hidden">
         <div className="flex-1 flex flex-col relative bg-white">
-          <div className="flex-1 overflow-y-auto p-5 sm:p-8 lg:px-24 lg:py-16 pb-32 no-scrollbar">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-8 lg:px-24 lg:py-16 pb-44 sm:pb-32 no-scrollbar">
             <div className="max-w-4xl">
               <div className="mb-10 flex items-center gap-6">
                 <div className="bg-slate-800 text-white text-[10px] font-black px-4 py-1 rounded uppercase">Item {current.q + 1}</div>
@@ -409,16 +452,16 @@ export default function MedicalExamPage() {
               </div>
 
               {/* MEDICAL IMAGE TAG TRIGGER */}
-              <div className="text-xl lg:text-2xl text-slate-800 leading-relaxed font-semibold mb-12 prose prose-slate max-w-none" dangerouslySetInnerHTML={{ __html: question.question_text }} />
+              <div className="prose prose-sm sm:prose-base lg:prose-lg text-base sm:text-lg lg:text-2xl text-slate-800 leading-relaxed font-semibold mb-8 sm:mb-12 max-w-none break-words" dangerouslySetInnerHTML={{ __html: question.question_text }} />
               
               <div className="space-y-3">
                 {question.options.map((opt, idx) => (
-                  <label key={opt.id} className={`flex items-center gap-6 p-6 border rounded-xl cursor-pointer transition-all ${Number(answers[qKey]) === Number(opt.id) ? "border-teal-500 bg-teal-50/30 shadow-md shadow-teal-50" : "border-slate-100 hover:border-slate-300"}`}>
+                  <label key={opt.id} className={`flex items-start gap-3 sm:gap-6 p-3 sm:p-6 border rounded-xl cursor-pointer transition-all ${Number(answers[qKey]) === Number(opt.id) ? "border-teal-500 bg-teal-50/30 shadow-md shadow-teal-50" : "border-slate-100 hover:border-slate-300"}`}>
                     <input type="radio" className="hidden" onChange={() => saveAnswer(opt.id)} checked={Number(answers[qKey]) === Number(opt.id)} />
-                    <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center font-bold text-sm ${Number(answers[qKey]) === Number(opt.id) ? "bg-teal-600 border-teal-600 text-white" : "border-slate-200 text-slate-300"}`}>
+                    <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 flex shrink-0 items-center justify-center font-bold text-xs sm:text-sm ${Number(answers[qKey]) === Number(opt.id) ? "bg-teal-600 border-teal-600 text-white" : "border-slate-200 text-slate-300"}`}>
                       {String.fromCharCode(65 + idx)}
                     </div>
-                    <div className="text-slate-700 font-semibold" dangerouslySetInnerHTML={{ __html: opt.option_text }} />
+                    <div className="prose prose-sm sm:prose-base max-w-none text-slate-700 font-semibold break-words" dangerouslySetInnerHTML={{ __html: opt.option_text }} />
                   </label>
                 ))}
               </div>
@@ -426,7 +469,7 @@ export default function MedicalExamPage() {
           </div>
 
           {/* FIXED CLINICAL CONTROLS */}
-          <footer className="absolute bottom-0 left-0 right-0 h-20 bg-slate-50 border-t border-slate-200 px-4 sm:px-12 flex items-center justify-between z-30 shadow-inner">
+          <footer className="absolute bottom-0 left-0 right-0 bg-slate-50 border-t border-slate-200 px-3 py-3 sm:px-12 sm:py-0 flex flex-col gap-2 sm:h-20 sm:flex-row sm:items-center sm:justify-between z-30 shadow-inner">
             <button
               disabled={current.q === 0}
               onClick={() => setCurrent((p) => ({ ...p, q: p.q - 1 }))}
@@ -434,11 +477,11 @@ export default function MedicalExamPage() {
             >
               &lt; Previous Question
             </button>
-            <div className="flex gap-4">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:gap-4">
               {pattern.allow_review ? (
-                <button onClick={() => setReview(r => ({ ...r, [qKey]: !r[qKey] }))} className={`px-10 py-3 rounded-lg font-black text-[10px] uppercase tracking-[0.2em] transition-all ${review[qKey] ? "bg-amber-500 text-white shadow-lg" : "bg-white border border-slate-200 text-slate-500 shadow-sm"}`}>Mark for Review</button>
+                <button onClick={() => setReview(r => ({ ...r, [qKey]: !r[qKey] }))} className={`px-4 sm:px-10 py-3 rounded-lg font-black text-[10px] uppercase tracking-[0.2em] transition-all ${review[qKey] ? "bg-amber-500 text-white shadow-lg" : "bg-white border border-slate-200 text-slate-500 shadow-sm"}`}>Mark for Review</button>
               ) : null}
-              <button onClick={() => current.q < section.questions.length - 1 && setCurrent(p => ({ ...p, q: p.q + 1 }))} className="px-6 sm:px-12 py-3 bg-teal-600 text-white rounded-lg font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-teal-100 hover:bg-teal-700 transition-all active:scale-95">Save & Next Question &gt;</button>
+              <button onClick={() => current.q < section.questions.length - 1 && setCurrent(p => ({ ...p, q: p.q + 1 }))} className="px-4 sm:px-12 py-3 bg-teal-600 text-white rounded-lg font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-teal-100 hover:bg-teal-700 transition-all active:scale-95">Save & Next Question &gt;</button>
             </div>
           </footer>
         </div>

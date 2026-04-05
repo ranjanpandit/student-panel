@@ -203,6 +203,34 @@ export default function ExamAttemptPage({ variant = "standard" }) {
     return { ...questionTimesRef.current };
   }, [touchQuestionTimer]);
 
+  const getCurrentSnapshotPayload = useCallback(() => {
+    if (!started || !sections.length) return null;
+    const section = sections[current.s];
+    const question = section?.questions?.[current.q];
+    if (!section || !question) return null;
+    const key = `${section.id}-${question.id}`;
+    return {
+      sectionId: section.id,
+      questionId: question.id,
+      answer: answers[key] ?? null,
+      timeLeft,
+      questionTimes: getQuestionTimesSnapshot(),
+    };
+  }, [answers, current.q, current.s, getQuestionTimesSnapshot, sections, started, timeLeft]);
+
+  const persistAttemptSnapshot = useCallback(async () => {
+    const payload = getCurrentSnapshotPayload();
+    if (!payload) return;
+    try {
+      await fetch(`/api/exams/${id}/attempt/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        keepalive: true,
+      });
+    } catch {}
+  }, [getCurrentSnapshotPayload, id]);
+
   const getQuestionRemainingAt = useCallback((sectionIndex, questionIndex) => {
     const sectionItem = sections[sectionIndex];
     const questionItem = sectionItem?.questions?.[questionIndex];
@@ -248,6 +276,34 @@ export default function ExamAttemptPage({ variant = "standard" }) {
       window.removeEventListener("beforeunload", returnFocusToOpener);
     };
   }, []);
+
+  useEffect(() => {
+    const persistOnClose = () => {
+      const payload = getCurrentSnapshotPayload();
+      if (!payload) return;
+      try {
+        const body = JSON.stringify(payload);
+        if (navigator.sendBeacon) {
+          const blob = new Blob([body], { type: "application/json" });
+          navigator.sendBeacon(`/api/exams/${id}/attempt/save`, blob);
+          return;
+        }
+        fetch(`/api/exams/${id}/attempt/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true,
+        });
+      } catch {}
+    };
+
+    window.addEventListener("beforeunload", persistOnClose);
+    window.addEventListener("pagehide", persistOnClose);
+    return () => {
+      window.removeEventListener("beforeunload", persistOnClose);
+      window.removeEventListener("pagehide", persistOnClose);
+    };
+  }, [getCurrentSnapshotPayload, id]);
 
   useEffect(() => {
     if (!started || isPractice) return;
@@ -500,6 +556,7 @@ export default function ExamAttemptPage({ variant = "standard" }) {
   async function confirmCloseTest() {
     closingRef.current = true;
     setShowClosePrompt(false);
+    await persistAttemptSnapshot();
     try {
       if (document.fullscreenElement || document.webkitFullscreenElement) {
         if (document.exitFullscreen) await document.exitFullscreen();
@@ -941,7 +998,7 @@ export default function ExamAttemptPage({ variant = "standard" }) {
                 <div className="mt-4 flex min-h-0 flex-col overflow-hidden rounded-[28px] border border-slate-300 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.16)]">
                   <div className="min-h-0 flex flex-col overflow-hidden px-4 py-4 sm:px-5 sm:py-5">
                     <div
-                      className="prose max-w-none max-h-[14vh] overflow-y-auto rounded-xl border border-slate-200/40 bg-slate-50 p-3 prose-p:leading-7 prose-headings:text-slate-900 prose-p:text-slate-700 prose-strong:text-slate-900 prose-img:rounded-2xl prose-img:shadow-md prose-img:max-h-56 prose-img:w-full prose-img:object-cover"
+                      className="prose prose-sm sm:prose-base max-w-none max-h-[22vh] sm:max-h-[14vh] overflow-y-auto rounded-xl border border-slate-200/40 bg-slate-50 p-3 prose-p:leading-6 sm:prose-p:leading-7 prose-headings:text-slate-900 prose-p:text-slate-700 prose-strong:text-slate-900 prose-img:rounded-2xl prose-img:shadow-md prose-img:max-h-56 prose-img:w-full prose-img:object-cover break-words"
                       dangerouslySetInnerHTML={{ __html: question.question_text || "" }}
                     />
                   </div>
@@ -951,7 +1008,7 @@ export default function ExamAttemptPage({ variant = "standard" }) {
               <div className={`mt-4 min-h-0 flex-1 pr-1 ${isFlash ? "flex flex-col overflow-hidden" : "overflow-y-auto"}`}>
                 {!isFlash ? (
                   <div
-                    className={`prose max-w-none prose-p:leading-7 prose-img:rounded-2xl prose-img:shadow-md ${
+                    className={`prose prose-sm sm:prose-base max-w-none prose-p:leading-6 sm:prose-p:leading-7 prose-img:rounded-2xl prose-img:shadow-md break-words ${
                       isFlash
                         ? "prose-headings:text-white prose-p:text-slate-100 prose-strong:text-white"
                       : "prose-headings:text-slate-950 prose-p:text-slate-800 prose-strong:text-slate-950"
@@ -1017,7 +1074,7 @@ export default function ExamAttemptPage({ variant = "standard" }) {
                             </div>
                             <div className="min-w-0 flex-1">
                               <div
-                                className="prose max-w-none prose-p:my-1 prose-p:text-slate-700"
+                                className="prose prose-sm sm:prose-base max-w-none prose-p:my-1 prose-p:leading-6 prose-p:text-slate-700 break-words"
                                 dangerouslySetInnerHTML={{ __html: opt.option_text || "" }}
                               />
                             </div>

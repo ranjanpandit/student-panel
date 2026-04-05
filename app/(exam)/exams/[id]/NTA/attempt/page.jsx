@@ -108,6 +108,34 @@ export default function NtaExamPage() {
     return { ...questionTimesRef.current };
   }, [touchQuestionTimer]);
 
+  const getCurrentSnapshotPayload = useCallback(() => {
+    if (!started || !sections.length) return null;
+    const section = sections[current.s];
+    const question = section?.questions?.[current.q];
+    if (!section || !question) return null;
+    const key = `${section.id}-${question.id}`;
+    return {
+      sectionId: section.id,
+      questionId: question.id,
+      answer: answers[key] ?? null,
+      timeLeft,
+      questionTimes: getQuestionTimesSnapshot(),
+    };
+  }, [answers, current.q, current.s, getQuestionTimesSnapshot, sections, started, timeLeft]);
+
+  const persistAttemptSnapshot = useCallback(async () => {
+    const payload = getCurrentSnapshotPayload();
+    if (!payload) return;
+    try {
+      await fetch(`/api/exams/${id}/attempt/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        keepalive: true,
+      });
+    } catch {}
+  }, [getCurrentSnapshotPayload, id]);
+
   useEffect(() => {
     const returnFocusToOpener = () => {
       if (window.opener && !window.opener.closed) {
@@ -122,6 +150,34 @@ export default function NtaExamPage() {
       window.removeEventListener("beforeunload", returnFocusToOpener);
     };
   }, []);
+
+  useEffect(() => {
+    const persistOnClose = () => {
+      const payload = getCurrentSnapshotPayload();
+      if (!payload) return;
+      try {
+        const body = JSON.stringify(payload);
+        if (navigator.sendBeacon) {
+          const blob = new Blob([body], { type: "application/json" });
+          navigator.sendBeacon(`/api/exams/${id}/attempt/save`, blob);
+          return;
+        }
+        fetch(`/api/exams/${id}/attempt/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true,
+        });
+      } catch {}
+    };
+
+    window.addEventListener("beforeunload", persistOnClose);
+    window.addEventListener("pagehide", persistOnClose);
+    return () => {
+      window.removeEventListener("beforeunload", persistOnClose);
+      window.removeEventListener("pagehide", persistOnClose);
+    };
+  }, [getCurrentSnapshotPayload, id]);
 
   /* =========================
       FUNCTIONALITY (KEEP LOGIC)
@@ -189,6 +245,7 @@ export default function NtaExamPage() {
   async function confirmCloseTest() {
     closingRef.current = true;
     setShowClosePrompt(false);
+    await persistAttemptSnapshot();
     try {
       if (isFullscreen()) {
         await document.exitFullscreen?.();
@@ -353,27 +410,27 @@ export default function NtaExamPage() {
         ))}
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 flex-col lg:flex-row overflow-hidden">
         {/* LEFT PANEL */}
-        <div className="flex-1 flex flex-col bg-white border-r border-gray-300 relative">
+        <div className="flex-1 flex flex-col bg-white border-r border-gray-300 relative min-h-0">
           <div className="bg-[#f0f0f0] px-4 py-1.5 border-b font-bold text-[14px] flex justify-between">
             <span>Question No: {current.q + 1}</span>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-6 scroll-smooth">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-6 scroll-smooth">
             <div className="max-w-4xl">
-              <div className="text-[16px] leading-relaxed mb-10 text-black border-b pb-4" dangerouslySetInnerHTML={{ __html: question.question_text }} />
+              <div className="prose prose-sm sm:prose-base max-w-none text-black mb-6 sm:mb-10 border-b pb-4 break-words" dangerouslySetInnerHTML={{ __html: question.question_text }} />
               <div className="space-y-4">
                 {question.options.map((opt, idx) => (
-                  <label key={opt.id} className="flex items-center gap-3 cursor-pointer group">
+                  <label key={opt.id} className="flex items-start gap-3 cursor-pointer group">
                     <input 
                       type="radio" 
                       name="answer" 
-                      className="w-4 h-4 cursor-pointer" 
+                      className="mt-1 h-4 w-4 shrink-0 cursor-pointer" 
                       onChange={() => saveAnswer(opt.id)} 
                       checked={Number(answers[qKey]) === Number(opt.id)} 
                     />
-                    <span className="text-[15px] group-hover:text-blue-700">
+                    <span className="text-sm leading-6 sm:text-[15px] group-hover:text-blue-700 break-words">
                        {idx + 1}) <span dangerouslySetInnerHTML={{ __html: opt.option_text }} />
                     </span>
                   </label>
@@ -384,7 +441,7 @@ export default function NtaExamPage() {
 
           {/* BOTTOM CONTROLS */}
           <div className="shrink-0 border-t border-gray-300">
-            <div className="flex gap-2 p-3 bg-[#f8f9fa]">
+            <div className="flex flex-wrap gap-2 p-3 bg-[#f8f9fa]">
               <button onClick={moveNextQuestion} className="bg-[#4caf50] text-white px-5 py-2 text-[12px] font-bold uppercase rounded border-b-2 border-green-800 shadow-sm">Save & Next</button>
               <button onClick={clearAnswer} className="bg-white border text-gray-700 px-5 py-2 text-[12px] font-bold uppercase rounded shadow-sm">Clear</button>
               {pattern.allow_review ? (
@@ -399,8 +456,8 @@ export default function NtaExamPage() {
               ) : null}
             </div>
             
-            <div className="p-3 flex justify-between items-center border-t bg-gray-100">
-               <div className="flex gap-2">
+            <div className="p-3 flex flex-wrap justify-between items-center gap-2 border-t bg-gray-100">
+               <div className="flex flex-wrap gap-2">
                  <button onClick={() => moveToQuestion(current.q - 1)} className="bg-white border px-4 py-1 text-xs font-bold shadow-sm">&lt;&lt; BACK</button>
                  <button onClick={() => moveToQuestion(current.q + 1)} className="bg-white border px-4 py-1 text-xs font-bold shadow-sm">NEXT &gt;&gt;</button>
                </div>
@@ -410,7 +467,7 @@ export default function NtaExamPage() {
         </div>
 
         {/* RIGHT PANEL */}
-        <aside className="w-[300px] flex flex-col bg-white shrink-0 border-l border-gray-300 overflow-y-auto">
+        <aside className="w-full lg:w-[300px] max-h-[42vh] lg:max-h-none flex flex-col bg-white shrink-0 border-t lg:border-t-0 lg:border-l border-gray-300 overflow-y-auto">
           {/* LEGEND BLOCK */}
           <div className="p-4 border-b">
             <div className="grid grid-cols-2 gap-x-2 gap-y-3 text-[11px] font-semibold">
